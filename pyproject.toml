@@ -1,0 +1,35 @@
+[project]
+name = "armada-flyte"
+version = "0.1.0"
+description = "A Flyte 2 connector that schedules each Flyte task as an Armada job"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "Dejan Zele Pejchev", email = "pejcev.dejan@gmail.com" }]
+keywords = ["flyte", "armada", "kubernetes", "workflow", "orchestration", "batch-scheduling"]
+dependencies = [
+    "flyte[connector]>=2.5.1",
+    "armada-client>=0.5.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.urls]
+Homepage = "https://github.com/armadaproject/armada-flyte"
+"Flyte" = "https://github.com/flyteorg/flyte"
+"Armada" = "https://github.com/armadaproject/armada"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.entry-points."flyte.connectors"]
+armada = "armada_flyte.connector"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
