@@ -1,61 +1,18 @@
 # Getting started
 
-From zero to a Flyte 2 task running on Armada and showing up in the **Flyte UI**, on a local stack.
+`armada-flyte` is a Flyte 2 connector. It runs your Flyte tasks as Armada jobs. This page installs
+the connector, runs it, and submits a task.
 
-The end state: you write a `@env.task`, submit it through a Flyte backend, and watch Armada
-schedule and run it as a pod in the Flyte console.
+Two things must already be running:
 
-## 1. Bring up Armada (a local Kind cluster)
+- an **Armada** cluster (the connector submits jobs to it), and
+- a **Flyte 2 backend** whose executor routes `armada` tasks to this connector.
 
-The connector submits to a running Armada cluster. From a checkout of the
-[armada](https://github.com/armadaproject/armada) repo, create a local Kubernetes cluster and start
-the stack with a real executor:
+Wiring a backend to route to the connector, the plugin image and config it needs, is in
+[../deploy/README.md](../deploy/README.md). Standing up Armada or a Flyte backend from scratch is out
+of scope here. This repo is the connector.
 
-```
-mage Kind            # create the Kind cluster "armada-test" and select its kube context
-mage dev:up no-auth  # dependencies, migrations, and the full Armada stack with a real executor
-```
-
-`mage Kind` selects the `kind-armada-test` context, which the executor uses to create pods. Wait
-until the executor logs `Reporting current free resource` and the scheduler logs
-`Retrieved 1 executors` before submitting (jobs sent in the first ~60s fail with
-`Retrieved 0 executors`, because the scheduler refreshes its executor list every 60s).
-
-Create the queue the examples target, and give it a couple of seconds to propagate:
-
-```
-go run cmd/armadactl/main.go create queue flyte
-```
-
-Tear the cluster down later with `mage KindTeardown`, and stop the dependencies with `mage dev:down`.
-
-## 2. Bring up a Flyte backend (a second cluster)
-
-This is a separate cluster from Armada's, and that is by design. Armada runs your job pods on its own
-kind cluster (step 1). The Flyte backend runs in its own k3d cluster, a "devbox" that holds the Flyte
-control plane, the UI, and a blob store. It routes `armada` tasks to the connector, which submits them
-to Armada, so the pods land on the Armada cluster. The two clusters talk through the connector service.
-
-Stock Flyte 2 neither registers the Armada connector plugin nor routes `armada` tasks to it. The
-`armada-devbox` branch adds both: the connector plugin (which is
-[dejanzele/flyte#1](https://github.com/dejanzele/flyte/pull/1), upstreaming in progress) plus the
-devbox config that routes `armada` tasks to the connector. Build the devbox from it. The build needs
-Docker (with buildx), Helm, Kustomize, and Go on your PATH:
-
-```
-git clone -b armada-devbox https://github.com/dejanzele/flyte.git
-cd flyte
-make devbox-build    # one-time: builds the devbox image with the connector plugin and routing (a heavy build)
-make devbox-run      # starts the devbox; the Flyte UI comes up on http://localhost:30080
-```
-
-On this branch the devbox does not publish its Kubernetes API port, so it coexists with the Armada
-cluster (which uses host port 6443). Inspect the devbox cluster with `docker exec flyte-devbox
-kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml ...`. Once `http://localhost:30080` answers, continue.
-Stop the devbox later with `docker rm -f flyte-devbox`. [../demo/](../demo/) describes what the run
-script expects from it.
-
-## 3. Install this package
+## 1. Install the connector
 
 On Apple Silicon use an arm64 Python. An x86_64 interpreter cannot load Flyte's native `obstore`
 wheel. From a checkout of this repo:
@@ -65,32 +22,59 @@ python3.11 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
-To use the connector in your own project instead, install it directly:
+Or install it into your own project:
 
 ```
 pip install "armada-flyte @ git+https://github.com/dejanzele/armada-flyte.git"
 ```
 
-## 4. Submit your first task
+## 2. Run the connector
 
-With Armada up (step 1) and a Flyte backend up (step 2), one command builds the task image, wires the
-blob store, starts the connector service, and submits the example through the backend:
-
-```
-./demo/run.sh examples/hello.py
-```
-
-It prints a UI link and the result:
+The connector is a gRPC service. Run it where your Flyte backend can reach it:
 
 ```
-submitted run rf6zwrmnpzpwdgnfzffn
-  UI: http://localhost:30080/v2/.../runs/rf6zwrmnpzpwdgnfzffn
-hello armada, from an Armada pod
+ARMADA_URL=<armada-host>:50051 \
+  FLYTE_BLOB_ENDPOINT=<blob-endpoint> \
+  FLYTE_BLOB_ACCESS_KEY=<key> FLYTE_BLOB_SECRET_KEY=<secret> \
+  ./.venv/bin/c0 --port 8000
 ```
 
-Open the `UI:` link to watch the run: Armada schedules the pod, runs the `@env.task`, and records the
-typed result. Then try the other examples through the backend, for example
-`./demo/run.sh examples/fanout.py` (a parallel fan-out) and `./demo/run.sh examples/gang.py` (an
+`ARMADA_URL` is where it submits jobs. `FLYTE_BLOB_*` is the blob store the Armada pods read and
+write, at an address those pods can reach. On startup it prints the task types it serves:
+
+```
+Connector Name     Support Task Types
+Armada Connector   armada (0)
+```
+
+To run the connector inside the backend cluster instead of on a host, deploy it with `deploy/app.py`
+(see [../deploy/README.md](../deploy/README.md)).
+
+## 3. Submit a task
+
+Tasks run in a generic image (`armada-flyte-task:v1` by default) that `a0` fast-registers your code
+into at runtime, so one image serves every example. Build it once from the repo root and make it
+available to the Armada cluster (`kind load docker-image armada-flyte-task:v1 --name <cluster>`, or
+push to a registry the cluster can pull from):
+
+```
+docker build -t armada-flyte-task:v1 -f- . <<'EOF'
+FROM python:3.11-slim
+COPY pyproject.toml README.md ./
+COPY src ./src
+RUN pip install --no-cache-dir "flyte==2.5.1" .
+EOF
+```
+
+The examples target a backend at `localhost:30080` (adjust `flyte.init(...)` in
+[examples/_runner.py](../examples/_runner.py) for yours) and queue `flyte`:
+
+```
+./.venv/bin/python examples/hello.py
+```
+
+It prints a UI link. Open it to watch Armada schedule the pod, run the `@env.task`, and record the
+typed result. Then try `examples/fanout.py` (a parallel fan-out) and `examples/gang.py` (an
 all-or-nothing gang). The example surface is described in [../examples/](../examples/).
 
 ## Configuration
@@ -100,7 +84,6 @@ this order, lowest to highest: built-in defaults, then the environment, then in-
 
 - **Environment**: `ARMADA_URL` (default `localhost:50051`, the Armada submit/status gRPC endpoint),
   and `FLYTE_BLOB_ENDPOINT` / `FLYTE_BLOB_ACCESS_KEY` / `FLYTE_BLOB_SECRET_KEY` for the blob store.
-  The run scripts set these for you.
 - **In code**: `armada_flyte.configure(armada_url=...)`, called before the first task runs. This is
   the home for credentials (it never reaches your task config or the control-plane DB). For the
   backend, call it in the connector service launcher.
@@ -110,7 +93,4 @@ set-the-env-var-before-import ordering trap).
 
 Other knobs:
 
-- `ARMADA_TASK_IMAGE` (default `armada-flyte-task:v1`): the task image the runner builds and loads.
-
-If something does not behave, check [gotchas.md](gotchas.md) first. Most setup problems are
-listed there.
+- `ARMADA_TASK_IMAGE` (default `armada-flyte-task:v1`): the task image an example runs in.

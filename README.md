@@ -42,18 +42,16 @@ never lands in the control plane. See [docs/getting-started.md](docs/getting-sta
 ## See it run
 
 With a local Armada cluster and a Flyte backend up (a one-time setup, see
-[getting started](docs/getting-started.md)), one command builds the task image, wires the blob
-store, and submits the task through the backend:
+[getting started](docs/getting-started.md)), submit the task through the backend:
 
 ```console
-$ ./demo/run.sh examples/hello.py
-submitted run rf6zwrmnpzpwdgnfzffn
-  UI: http://localhost:30080/v2/.../runs/rf6zwrmnpzpwdgnfzffn
-hello armada, from an Armada pod
+$ ./.venv/bin/python examples/hello.py
+submitted run rhjb5lr7m29wxbr6jm49
+  UI: http://localhost:30080/v2/.../runs/rhjb5lr7m29wxbr6jm49
 ```
 
-The run shows up in the Flyte UI, scheduled and executed by Armada. See [demo/](demo/) for what the
-script does, and [getting started](docs/getting-started.md) for the one-time setup.
+The run shows up in the Flyte UI, scheduled and executed by Armada. See
+[getting started](docs/getting-started.md) for installing and running the connector.
 
 ## Why both
 
@@ -86,18 +84,20 @@ Flyte UI.
 
 Go from zero to a job in the Flyte UI:
 
-1. **Stand up Armada and a Flyte backend.** A local Kind cluster plus a Flyte 2 devbox is all you
-   need. [Getting started](docs/getting-started.md) walks the one-time setup.
+1. **Have Armada and a Flyte backend.** The connector needs a running Armada and a Flyte 2 backend
+   that routes `armada` tasks to it. [Getting started](docs/getting-started.md) covers what the
+   backend needs.
 2. **Write your first task.** A stock `@env.task` and one `plugin_config=ArmadaConfig(queue=...)`
    line. Start from [examples/hello.py](examples/hello.py), then browse [examples/](examples/) for
    fan-out, a full ML pipeline, and gang scheduling.
-3. **Submit it to the backend.** `./demo/run.sh examples/hello.py` builds the task image, wires the
-   blob store, and registers the task with Flyte. See [demo/](demo/) for what each step does.
+3. **Run the connector and submit.** Start the connector (`c0`), then
+   `./.venv/bin/python examples/hello.py` submits the task. [Getting started](docs/getting-started.md)
+   has the details.
 4. **Watch it run in the Flyte UI.** The command prints a UI link. Open it to follow the run as
    Armada schedules the pod, executes it, and records the typed result.
 5. **Go further.** Understand the internals in [How it works](docs/architecture.md) (the connector,
    state mapping, gang scheduling). Deploy the connector as a service for hands-off routing in
-   [deploy/](deploy/). Hit something odd? [Gotchas](docs/gotchas.md) lists the non-obvious traps.
+   [deploy/](deploy/).
 
 ## License
 

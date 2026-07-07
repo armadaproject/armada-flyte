@@ -8,7 +8,7 @@ The cross-validation jobs are INDEPENDENT (no gang): alphas x k parallel Armada 
 (a closed-form 1-D ridge) so it runs with no image changes; swap in numpy/scikit-learn for real
 models by adding them to the task image. Run:
 
-    ./demo/run.sh examples/ml_pipeline.py              # default: runs on Armada, shows in the Flyte UI
+    ./.venv/bin/python examples/ml_pipeline.py              # default: runs on Armada, shows in the Flyte UI
 """
 
 from __future__ import annotations

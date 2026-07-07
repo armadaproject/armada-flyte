@@ -16,7 +16,7 @@ start piecemeal as capacity frees up). Gangs are for co-dependent workers, not p
 
 Gang placement is a property of the real Armada scheduler, so run this THROUGH THE BACKEND:
 
-    ./demo/run.sh examples/gang.py
+    ./.venv/bin/python examples/gang.py
 """
 
 from __future__ import annotations

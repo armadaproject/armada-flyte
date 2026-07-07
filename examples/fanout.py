@@ -9,7 +9,7 @@ The shards are INDEPENDENT jobs: Armada schedules each as capacity frees up, whi
 primitive for embarrassingly-parallel work (a parameter sweep, Monte-Carlo paths, batch scoring).
 A typed dataclass (Stats) flows between the stages. Run:
 
-    ./demo/run.sh examples/fanout.py                 # default: runs on Armada, shows in the Flyte UI
+    ./.venv/bin/python examples/fanout.py                 # default: runs on Armada, shows in the Flyte UI
 """
 
 from __future__ import annotations

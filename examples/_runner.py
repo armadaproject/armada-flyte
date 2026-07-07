@@ -2,8 +2,8 @@
 block only, so the task pod (which imports the example module to load the task, but never runs
 __main__) never needs to import this file.
 
-It submits the example through the Flyte backend. demo/run.sh builds the task image, wires the blob
-store, and starts the connector service before launching the example.
+It submits the example through the Flyte backend (via ``flyte.init`` at localhost:30080) and waits
+for the typed result. The connector routes the task to Armada. Adjust the endpoint for your backend.
 """
 
 from __future__ import annotations

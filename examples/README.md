@@ -20,7 +20,7 @@ The runner builds the task image, wires the blob store, and submits the example 
 backend, so the run shows up in the Flyte UI:
 
 ```bash
-./demo/run.sh examples/hello.py
+./.venv/bin/python examples/hello.py
 ```
 
 Pass any example as the argument. Prerequisite: a running Armada cluster and a Flyte 2 backend (see
