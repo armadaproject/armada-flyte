@@ -9,7 +9,7 @@ The shards are INDEPENDENT jobs: Armada schedules each as capacity frees up, whi
 primitive for embarrassingly-parallel work (a parameter sweep, Monte-Carlo paths, batch scoring).
 A typed dataclass (Stats) flows between the stages. Run:
 
-    ./demo/run.sh examples/fanout.py                 # default: runs on Armada, shows in the Flyte UI
+    ./.venv/bin/python examples/fanout.py                 # default: runs on Armada, shows in the Flyte UI
 """
 
 from __future__ import annotations
@@ -29,8 +29,7 @@ work = flyte.TaskEnvironment(
     resources=flyte.Resources(cpu=1, memory="512Mi"),
     plugin_config=ArmadaConfig(queue="flyte"),
 )
-# The driver orchestrates the fan-out / fan-in. It runs as a backend pod, so it needs the same
-# task image.
+# The driver orchestrates the fan-out / fan-in. It runs as a backend pod, needing the same task image.
 driver = flyte.TaskEnvironment(name="driver", image=IMAGE, depends_on=[work])
 
 

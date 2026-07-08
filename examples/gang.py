@@ -2,21 +2,15 @@
 
     seed shards            give each worker a slice of a shared dataset
     worker (x N) ONE GANG  N co-dependent workers, scheduled all-or-nothing by Armada
-    reduce                 combine the workers' contributions into the final result
+    reduce                 combine the workers' contributions
 
-The N workers form a GANG: they share a gang_id and all declare the same gang_cardinality = N, so
-Armada places ALL N pods together or NONE. This is the right primitive for a distributed job whose
-workers must run AT THE SAME TIME (an all-reduce ring, an MPI world, parameter-server + workers): a
-worker that exchanges partial results every round cannot make progress while its peers are absent.
-Gang scheduling means the job never holds half its workers idle: the whole cohort runs, or the gang
-stays queued until it fits.
+The N workers share a gang_id and the same gang_cardinality = N, so Armada places ALL N pods together
+or none. This is the primitive for a distributed job whose workers must run at the same time (an
+all-reduce ring, an MPI world), where a worker cannot progress while its peers are absent. Contrast
+fanout.py, whose shards are INDEPENDENT and use no gang: gangs are for co-dependent workers, not
+parallel busywork.
 
-Contrast examples/fanout.py: those shards are INDEPENDENT and correctly use no gang (they should
-start piecemeal as capacity frees up). Gangs are for co-dependent workers, not parallel busywork.
-
-Gang placement is a property of the real Armada scheduler, so run this THROUGH THE BACKEND:
-
-    ./demo/run.sh examples/gang.py
+    ./.venv/bin/python examples/gang.py
 """
 
 from __future__ import annotations

@@ -11,16 +11,15 @@ Five examples, in order:
 | [`hello.py`](hello.py) | **Hello world.** One task, returns a greeting string. | `hello armada, from an Armada pod` |
 | [`function.py`](function.py) | **Simple.** One task that does real work: a Black-Scholes option price. | `call price = 10.4506` |
 | [`fanout.py`](fanout.py) | **Parallel.** A typed dataclass through a fan-out / fan-in (independent jobs via `asyncio.gather`). | `Stats(...)  mean = 506.47` |
-| [`ml_pipeline.py`](ml_pipeline.py) | **Complex.** End-to-end ML: make data, k-fold cross-validation in parallel, pick the best model, evaluate. | `best alpha = 1.0  fit y ~ 3.00 x + 2.00` |
 | [`gang.py`](gang.py) | **Armada gangs.** N co-dependent workers, scheduled all-or-nothing (the one feature plain k8s cannot give you). | `global average = 54.32` |
+| [`dag.py`](dag.py) | **Gang in a DAG.** Generate a dataset, run a co-scheduled gang over it, aggregate the results. | `global mean = 50.00` |
 
 ## Run one
 
-The runner builds the task image, wires the blob store, and submits the example through the Flyte
-backend, so the run shows up in the Flyte UI:
+The runner submits the example through the Flyte backend, so the run shows up in the Flyte UI:
 
 ```bash
-./demo/run.sh examples/hello.py
+./.venv/bin/python examples/hello.py
 ```
 
 Pass any example as the argument. Prerequisite: a running Armada cluster and a Flyte 2 backend (see
