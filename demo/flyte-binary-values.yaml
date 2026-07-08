@@ -1,0 +1,145 @@
+# flyte-binary (v2) values for the local quickstart.
+#
+# Derived from the flyte-devbox config, with the bundled rustfs/postgres swapped for the external
+# minio.yaml and postgres.yaml in this directory, and the connector pointed at the host-run armada
+# connector (c0).
+#
+# The __HOST_IP__ placeholder (in configuration.inline.plugins.connector-service.defaultConnector.endpoint)
+# is filled at install time with the host's LAN IP (setup.sh). The flyte-binary pods dial the connector,
+# which is a process on the host, so they need its LAN address rather than a cluster DNS name.
+
+fullnameOverride: flyte-binary
+
+deployment:
+  image:
+    repository: dpejcev/flyte-binary-v2
+    tag: armada
+    pullPolicy: IfNotPresent
+  waitForDB:
+    image:
+      repository: postgres
+      tag: 16-alpine
+      pullPolicy: IfNotPresent
+
+console:
+  image:
+    repository: ghcr.io/unionai-oss/flyteconsole-v2
+    tag: latest
+    pullPolicy: IfNotPresent
+
+configuration:
+  database:
+    postgres:
+      host: postgres.flyte.svc.cluster.local
+      port: 5432
+      dbname: flyte
+      username: postgres
+      password: postgres
+      options: "sslmode=disable"
+
+  storage:
+    metadataContainer: flyte-data
+    userDataContainer: flyte-data
+    provider: s3
+    providerConfig:
+      s3:
+        region: us-east-1
+        disableSSL: true
+        v2Signing: true
+        endpoint: http://minio.flyte.svc.cluster.local:9000
+        authType: accesskey
+        accessKey: minio
+        secretKey: minio12345
+
+  logging:
+    level: 5
+
+  inline:
+    # The Flyte v2 run graph lives in a relational "runs" DB, separate from the main metadata DB
+    # above. Same postgres server, different database name.
+    runs:
+      database:
+        postgres:
+          host: postgres.flyte.svc.cluster.local
+          port: 5432
+          dbName: runs
+          user: postgres
+
+    task_resources:
+      defaults:
+        cpu: 500m
+        memory: 1Gi
+        ephemeralStorage: 0
+        gpu: 0
+      limits:
+        cpu: 0
+        memory: 0
+        ephemeralStorage: 0
+        gpu: 0
+
+    # Signed-URL endpoint the Flyte client (on the host) uses to upload fast-register bundles and read
+    # outputs. setup.sh makes localhost:30900 reach minio, through a kind port mapping or a port-forward.
+    storage:
+      signedURL:
+        stowConfigOverride:
+          endpoint: http://localhost:30900
+
+    plugins:
+      # The connector that armada tasks are delegated to. Runs on the host (c0), reachable from in-cluster
+      # Flyte at the host LAN IP. supportedTaskTypes is what makes the plugin match the `armada` task
+      # type to this connector. Without it, Flyte reports "no connector found for task type [armada]".
+      # This must live under inline.plugins because the chart's top-level configuration.connectorService
+      # is not wired into the config.
+      connector-service:
+        defaultConnector:
+          endpoint: "dns:///__HOST_IP__:8000"
+          insecure: true
+        supportedTaskTypes:
+          - armada
+
+      # Env vars stamped onto pods Flyte itself creates (non-armada task types). Armada tasks get the
+      # equivalent blob endpoint injected by the connector at job-build time instead.
+      k8s:
+        default-env-vars:
+          - FLYTE_AWS_ENDPOINT: http://minio.flyte.svc.cluster.local:9000
+          - FLYTE_AWS_ACCESS_KEY_ID: minio
+          - FLYTE_AWS_SECRET_ACCESS_KEY: minio12345
+          - _U_EP_OVERRIDE: 'flyte-binary-http.flyte:8090'
+          - _U_INSECURE: "true"
+          - _U_USE_ACTIONS: "1"
+
+    webhook:
+      secretManagerTypes:
+        - Embedded
+      embeddedSecretManagerConfig:
+        type: K8s
+        k8sConfig:
+          namespace: flyte
+
+# Route the "armada" task type to the connector, and keep the stock plugins for the rest.
+enabled_plugins:
+  tasks:
+    task-plugins:
+      enabled-plugins:
+        - container
+        - sidecar
+        - connector-service
+        - echo
+      default-for-task-types:
+        container: container
+        sidecar: sidecar
+        container_array: k8s-array
+        armada: connector-service
+
+# Expose the Flyte API on a fixed NodePort. setup.sh port-forwards localhost:30080 to it.
+service:
+  type: NodePort
+  nodePorts:
+    http: 30080
+
+# Flyte needs broad RBAC in a dev sandbox to create per-namespace resources.
+rbac:
+  extraRules:
+    - apiGroups: ["*"]
+      resources: ["*"]
+      verbs: ["*"]
