@@ -51,7 +51,7 @@ _ARMADA_STATE_TO_PHASE: Dict[int, "TaskExecution.Phase"] = {
     submit_pb2.LEASED: TaskExecution.QUEUED,
     submit_pb2.PENDING: TaskExecution.INITIALIZING,
     submit_pb2.RUNNING: TaskExecution.RUNNING,
-    submit_pb2.UNKNOWN: TaskExecution.RUNNING,  # transient; keep polling
+    submit_pb2.UNKNOWN: TaskExecution.RUNNING,  # transient, keep polling
     submit_pb2.SUCCEEDED: TaskExecution.SUCCEEDED,
     submit_pb2.FAILED: TaskExecution.FAILED,
     submit_pb2.REJECTED: TaskExecution.FAILED,
@@ -89,7 +89,7 @@ class ArmadaJobMetadata(ResourceMeta):
     job_id: str
     job_set_id: str
     queue: str
-    # The blob location a0 writes outputs/errors to; get() reads error.pb from here on a terminal job.
+    # The blob location a0 writes outputs/errors to. get() reads error.pb from here on a terminal job.
     output_prefix: str = ""
 
 
@@ -233,14 +233,14 @@ class ArmadaConnector(AsyncConnector):
             action_name = ne.node_id
         except AttributeError:
             pass
-        # labels is a protobuf map<string,string>; organization carries the org.
+        # labels is a protobuf map<string,string> whose "organization" key carries the org.
         try:
             org = meta.labels.get("organization", "")
         except (AttributeError, TypeError):
             pass
         subs = {"{{.runName}}": run_name, "{{.actionName}}": action_name}
         args = [subs.get(a, a) for a in args]
-        # output_prefix ends in /<run>/<action>/<attempt>; the run base dir drops action+attempt.
+        # output_prefix ends in /<run>/<action>/<attempt>. The run base dir drops action+attempt.
         if "--run-base-dir" not in args and output_prefix:
             args = args + ["--run-base-dir", output_prefix.rsplit("/", 2)[0]]
         # a0 requires org (and project/domain) which the backend leaves for the executor to fill.

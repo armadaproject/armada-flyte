@@ -19,6 +19,15 @@ import os
 from dataclasses import dataclass, fields, replace
 from typing import Any
 
+# Field name -> environment variable that overrides its default. Keeping this here means each
+# default lives once (on the dataclass field) instead of being repeated in from_env().
+_ENV_VARS = {
+    "armada_url": "ARMADA_URL",
+    "blob_endpoint": "FLYTE_BLOB_ENDPOINT",
+    "blob_access_key": "FLYTE_BLOB_ACCESS_KEY",
+    "blob_secret_key": "FLYTE_BLOB_SECRET_KEY",
+}
+
 
 @dataclass(frozen=True)
 class ConnectorConfig:
@@ -38,15 +47,11 @@ class ConnectorConfig:
     @classmethod
     def from_env(cls) -> "ConnectorConfig":
         """Read settings from the environment, falling back to the dataclass defaults."""
-        return cls(
-            armada_url=os.environ.get("ARMADA_URL", "localhost:50051"),
-            blob_endpoint=os.environ.get("FLYTE_BLOB_ENDPOINT", ""),
-            blob_access_key=os.environ.get("FLYTE_BLOB_ACCESS_KEY", ""),
-            blob_secret_key=os.environ.get("FLYTE_BLOB_SECRET_KEY", ""),
-        )
+        env_values = {field: os.environ[var] for field, var in _ENV_VARS.items() if var in os.environ}
+        return replace(cls(), **env_values)
 
 
-# In-code overrides set via configure(); applied on top of from_env() when the config resolves.
+# In-code overrides set via configure(), applied on top of from_env() when the config resolves.
 _overrides: dict = {}
 
 
