@@ -41,17 +41,18 @@ never lands in the control plane. See [docs/getting-started.md](docs/getting-sta
 
 ## See it run
 
-With a local Armada cluster and a Flyte backend up (a one-time setup, see
-[getting started](docs/getting-started.md)), submit the task through the backend:
+With a local Armada cluster up, the [demo](demo/) stands up a Flyte backend and the connector in one
+command, then you submit the task:
 
 ```console
+$ ./demo/setup.sh
 $ ./.venv/bin/python examples/hello.py
-submitted run rhjb5lr7m29wxbr6jm49
-  UI: http://localhost:30080/v2/.../runs/rhjb5lr7m29wxbr6jm49
+submitted run rxc4nspfkjqr5px6q9nj
+  UI: http://localhost:30080/v2/.../runs/rxc4nspfkjqr5px6q9nj
 ```
 
 The run shows up in the Flyte UI, scheduled and executed by Armada. See
-[getting started](docs/getting-started.md) for installing and running the connector.
+[getting started](docs/getting-started.md) for the walkthrough.
 
 ## Why both
 
@@ -84,15 +85,13 @@ Flyte UI.
 
 Go from zero to a job in the Flyte UI:
 
-1. **Have Armada and a Flyte backend.** The connector needs a running Armada and a Flyte 2 backend
-   that routes `armada` tasks to it. [Getting started](docs/getting-started.md) covers what the
-   backend needs.
+1. **Bring up Armada and the Flyte backend.** A local Kind cluster runs both, and the [demo](demo/)
+   stands the Flyte side up in one command. [Getting started](docs/getting-started.md) walks it.
 2. **Write your first task.** A stock `@env.task` and one `plugin_config=ArmadaConfig(queue=...)`
    line. Start from [examples/hello.py](examples/hello.py), then browse [examples/](examples/) for
    fan-out, a full ML pipeline, and gang scheduling.
-3. **Run the connector and submit.** Start the connector (`c0`), then
-   `./.venv/bin/python examples/hello.py` submits the task. [Getting started](docs/getting-started.md)
-   has the details.
+3. **Submit it.** With the demo up (`./demo/setup.sh`), `./.venv/bin/python examples/hello.py` runs
+   the task on Armada and shows it in the Flyte UI.
 4. **Watch it run in the Flyte UI.** The command prints a UI link. Open it to follow the run as
    Armada schedules the pod, executes it, and records the typed result.
 5. **Go further.** Understand the internals in [How it works](docs/architecture.md) (the connector,

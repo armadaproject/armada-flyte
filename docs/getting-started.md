@@ -1,18 +1,20 @@
 # Getting started
 
-`armada-flyte` is a Flyte 2 connector. It runs your Flyte tasks as Armada jobs. This page installs
-the connector, runs it, and submits a task.
+`armada-flyte` is a Flyte 2 connector. It runs your Flyte tasks as Armada jobs.
 
-Two things must already be running:
+## Try it locally
 
-- an **Armada** cluster (the connector submits jobs to it), and
-- a **Flyte 2 backend** whose executor routes `armada` tasks to this connector.
+The fastest way to see it work is the demo. [../demo/](../demo/) stands up a Flyte 2 backend and the
+connector in the Kind cluster Armada already uses. With Armada running, `./demo/setup.sh` builds the
+backend and starts the connector, then `./.venv/bin/python examples/hello.py` runs a task on Armada
+and shows it in the Flyte UI. Follow [../demo/README.md](../demo/README.md) for the walkthrough.
 
-Wiring a backend to route to the connector, the plugin image and config it needs, is in
-[../deploy/README.md](../deploy/README.md). Standing up Armada or a Flyte backend from scratch is out
-of scope here. This repo is the connector.
+The rest of this page is for running the connector against a Flyte 2 backend you already operate. That
+needs two things running: an **Armada** cluster (the connector submits jobs to it) and a **Flyte 2
+backend** whose executor routes `armada` tasks to the connector (see
+[../deploy/README.md](../deploy/README.md) for what the backend needs).
 
-## 1. Install the connector
+## Install the connector
 
 On Apple Silicon use an arm64 Python. An x86_64 interpreter cannot load Flyte's native `obstore`
 wheel. From a checkout of this repo:
@@ -28,7 +30,7 @@ Or install it into your own project:
 pip install "armada-flyte @ git+https://github.com/dejanzele/armada-flyte.git"
 ```
 
-## 2. Run the connector
+## Run the connector
 
 The connector is a gRPC service. Run it where your Flyte backend can reach it:
 
@@ -50,7 +52,7 @@ Armada Connector   armada (0)
 To run the connector inside the backend cluster instead of on a host, deploy it with `deploy/app.py`
 (see [../deploy/README.md](../deploy/README.md)).
 
-## 3. Submit a task
+## Submit a task
 
 Tasks run in a generic image (`armada-flyte-task:v1` by default) that `a0` fast-registers your code
 into at runtime, so one image serves every example. Build it once from the repo root and make it
