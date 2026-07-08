@@ -64,7 +64,7 @@ docker build -t armada-flyte-task:v1 -f- . <<'EOF'
 FROM python:3.11-slim
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir "flyte==2.5.1" .
+RUN pip install --no-cache-dir "flyte==2.5.8" .
 EOF
 ```
 

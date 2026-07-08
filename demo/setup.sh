@@ -77,7 +77,7 @@ cp -R "$ROOT/pyproject.toml" "$ROOT/README.md" "$ROOT/src" "$build/pkg/"
 cat > "$build/Dockerfile" <<EOF
 FROM python:3.11-slim
 COPY pkg /pkg
-RUN pip install --no-cache-dir "flyte==2.5.1" /pkg
+RUN pip install --no-cache-dir "flyte==2.5.8" /pkg
 EOF
 docker build -t "$TASK_IMAGE" "$build" >/dev/null
 rm -rf "$build"
