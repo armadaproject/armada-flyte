@@ -81,22 +81,17 @@ The connector wraps that container into an Armada job, submits it, and polls unt
 The connector runs as a service that a deployed Flyte backend routes to, so every run lands in the
 Flyte UI.
 
-## Next steps
+## Where to go next
 
-Go from zero to a job in the Flyte UI:
-
-1. **Bring up Armada and the Flyte backend.** A local Kind cluster runs both, and the [demo](demo/)
-   stands the Flyte side up in one command. [Getting started](docs/getting-started.md) walks it.
-2. **Write your first task.** A stock `@env.task` and one `plugin_config=ArmadaConfig(queue=...)`
-   line. Start from [examples/hello.py](examples/hello.py), then browse [examples/](examples/) for
-   fan-out, gang scheduling, and a gang inside a DAG.
-3. **Submit it.** With the demo up (`./demo/setup.sh`), `./.venv/bin/python examples/hello.py` runs
-   the task on Armada and shows it in the Flyte UI.
-4. **Watch it run in the Flyte UI.** The command prints a UI link. Open it to follow the run as
-   Armada schedules the pod, executes it, and records the typed result.
-5. **Go further.** Understand the internals in [How it works](docs/architecture.md) (the connector,
-   state mapping, gang scheduling). Deploy the connector as a service for hands-off routing in
-   [deploy/](deploy/).
+- **Run it locally.** [demo/](demo/) stands up the backend and connector in one command (the
+  [See it run](#see-it-run) commands above).
+- **Write tasks.** Start from [examples/hello.py](examples/hello.py), then [examples/](examples/) for
+  fan-out, gang scheduling, and a gang inside a DAG.
+- **Run against your own backend.** [Getting started](docs/getting-started.md) covers installing the
+  connector, running it as a service, and building the task image.
+- **Understand the internals.** [How it works](docs/architecture.md): the connector, state mapping,
+  and gang scheduling.
+- **Deploy the connector as a service.** [deploy/](deploy/).
 
 ## License
 

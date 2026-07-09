@@ -5,9 +5,8 @@
 ## Try it locally
 
 The fastest way to see it work is the demo. [../demo/](../demo/) stands up a Flyte 2 backend and the
-connector in the Kind cluster Armada already uses. With Armada running, `./demo/setup.sh` builds the
-backend and starts the connector, then `./.venv/bin/python examples/hello.py` runs a task on Armada
-and shows it in the Flyte UI. Follow [../demo/README.md](../demo/README.md) for the walkthrough.
+connector in the Kind cluster Armada already uses, then runs a task on Armada. Follow
+[../demo/README.md](../demo/README.md) for the walkthrough.
 
 The rest of this page is for running the connector against a Flyte 2 backend you already operate. That
 needs two things running: an **Armada** cluster (the connector submits jobs to it) and a **Flyte 2
@@ -27,7 +26,7 @@ python3.11 -m venv .venv
 Or install it into your own project:
 
 ```
-pip install "armada-flyte @ git+https://github.com/dejanzele/armada-flyte.git"
+pip install "armada-flyte @ git+https://github.com/armadaproject/armada-flyte.git"
 ```
 
 ## Run the connector
