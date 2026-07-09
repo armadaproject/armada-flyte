@@ -212,11 +212,11 @@ still shares the same id.
 
 ## How it plugs into Flyte 2
 
-Stock Flyte 2 ships the webapi/connector plugin code but does not register it, and its executor does
-not supply the `ResourceManager`, `ResourceRegistrar`, or `SecretManager` the plugin machinery
-needs. The `dejanzele/flyte` fork's `armada` branch closes that gap. Its published
-`dpejcev/flyte-binary-v2:armada` image carries the registration (`docs/getting-started.md`, upstream
-issue flyteorg/flyte#7564, PR #7565).
+Flyte 2 ships the webapi/connector plugin code, and as of
+[flyteorg/flyte#7565](https://github.com/flyteorg/flyte/pull/7565) its executor registers the plugin
+and supplies the no-op `ResourceManager`, `ResourceRegistrar`, and `SecretManager` the plugin
+machinery needs. Any stock `flyte-binary-v2` build from that commit on routes `armada` tasks to the
+connector. Earlier builds do not (see `docs/getting-started.md`).
 
 ### The webapi connector plugin
 
