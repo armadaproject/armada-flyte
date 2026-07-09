@@ -17,7 +17,7 @@ import flyte.app
 
 image = flyte.Image.from_debian_base(python_version=(3, 11)).with_pip_packages(
     "flyte[connector]",
-    "armada-flyte @ git+https://github.com/dejanzele/armada-flyte.git",
+    "armada-flyte @ git+https://github.com/armadaproject/armada-flyte.git",
 )
 
 connector = flyte.app.ConnectorEnvironment(
