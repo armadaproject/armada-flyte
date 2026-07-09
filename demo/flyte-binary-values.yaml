@@ -12,8 +12,11 @@ fullnameOverride: flyte-binary
 
 deployment:
   image:
-    repository: dpejcev/flyte-binary-v2
-    tag: armada
+    # Stock upstream Flyte 2 binary, pinned to the first commit that registers the connector-service
+    # (webapi) plugin in the v2 executor (flyteorg/flyte#7565). That registration is what routes
+    # `armada` tasks to the connector. Any later build works too. Pinned by commit for reproducibility.
+    repository: cr.flyte.org/flyteorg/flyte-binary-v2
+    tag: sha-d9e0ebe97be436c7c03c13a8243d3b399d1729e7
     pullPolicy: IfNotPresent
   waitForDB:
     image:

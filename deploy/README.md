@@ -23,12 +23,12 @@ pods use with `FLYTE_BLOB_ENDPOINT` / `FLYTE_BLOB_ACCESS_KEY` / `FLYTE_BLOB_SECR
 
 ## What your Flyte backend needs
 
-Stock Flyte 2 neither registers the Armada connector plugin nor routes `armada` tasks to it. Your
-backend needs both.
+Stock Flyte 2 does not route `armada` tasks to the connector out of the box. Your backend needs both
+the connector-service plugin registered and the routing config.
 
-- **The plugin registered.** The published image `dpejcev/flyte-binary-v2:armada` registers it. Stock
-  `flyte-binary-v2` does not. Upstreaming is in progress in
-  [dejanzele/flyte#7565](https://github.com/dejanzele/flyte/pull/7565).
+- **The plugin registered.** Stock `flyte-binary-v2` registers the connector-service plugin as of
+  [flyteorg/flyte#7565](https://github.com/flyteorg/flyte/pull/7565) (any build from that commit on).
+  On an earlier build the plugin is absent and `armada` tasks have no handler.
 - **Routing to the connector.** Declare the connector and route the `armada` task type to it. For the
   `flyte-binary` chart this goes in the config:
 

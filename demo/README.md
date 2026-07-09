@@ -33,15 +33,13 @@ reaches them without any kind port mapping.
    ```
    python3.11 -m venv .venv && ./.venv/bin/pip install -e .
    ```
-3. **The flyte fork** with the flyte-binary chart and the connector-registering image. Clone it and
-   point `FLYTE_CHART` at the chart (defaults to `../flyte/charts/flyte-binary` next to this repo):
-   ```
-   git clone -b armada https://github.com/dejanzele/flyte.git ../flyte
-   ```
-   The chart's default image is the public `dpejcev/flyte-binary-v2:armada`, which registers the
-   Armada connector plugin. Stock `flyte-binary-v2` does not (see
-   [dejanzele/flyte#7565](https://github.com/dejanzele/flyte/pull/7565)).
-4. `docker`, `helm`, `kubectl`, `kind` on PATH.
+3. `docker`, `helm`, `kubectl`, `kind` on PATH.
+
+`setup.sh` pulls the published flyte-binary chart from the flyteorg helm repo and a stock upstream
+`cr.flyte.org/flyteorg/flyte-binary-v2` image, so no Flyte checkout is needed. The pinned image is the
+first commit that registers the connector-service plugin in the v2 executor
+([flyteorg/flyte#7565](https://github.com/flyteorg/flyte/pull/7565)). Earlier stock builds do not have
+it.
 
 ## Run
 
@@ -72,9 +70,10 @@ examples work the same way (`examples/fanout.py`, `examples/gang.py`, `examples/
 
 ## Overrides
 
-`setup.sh` reads these env vars: `KIND_CLUSTER` (default `armada-test`), `FLYTE_CHART`,
-`FLYTE_IMAGE` (default `dpejcev/flyte-binary-v2:armada`), `TASK_IMAGE` (default
-`armada-flyte-task:v1`), `ARMADA_URL` (default `localhost:50051`), `HOST_IP` (auto-detected).
+`setup.sh` reads these env vars: `KIND_CLUSTER` (default `armada-test`), `FLYTE_CHART` (default
+`flyteorg/flyte-binary`, or a local directory for an unreleased chart), `FLYTE_CHART_VERSION`
+(default `v2.0.27`), `FLYTE_IMAGE` (default the pinned stock `flyte-binary-v2` build), `TASK_IMAGE`
+(default `armada-flyte-task:v1`), `ARMADA_URL` (default `localhost:50051`), `HOST_IP` (auto-detected).
 
 ## Teardown
 

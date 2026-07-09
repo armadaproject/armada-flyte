@@ -12,16 +12,20 @@
 #   - Armada up with a real executor against the kind cluster $KIND_CLUSTER, and queue "flyte" created
 #     (in the armada repo: `go run github.com/magefile/mage@v1.17.2 dev:full`, then create queue "flyte")
 #   - this repo's venv built (`python3.11 -m venv .venv && ./.venv/bin/pip install -e .`)
-#   - a checkout of the flyte fork with the flyte-binary chart (set $FLYTE_CHART)
 #   - docker, helm, kubectl, kind on PATH
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$(cd .. && pwd)"
 
 KIND_CLUSTER="${KIND_CLUSTER:-armada-test}"
-FLYTE_IMAGE="${FLYTE_IMAGE:-dpejcev/flyte-binary-v2:armada}"
+# Stock upstream Flyte 2 binary at the first commit that registers the connector-service plugin
+# (flyteorg/flyte#7565). Keep this in sync with the image tag in flyte-binary-values.yaml.
+FLYTE_IMAGE="${FLYTE_IMAGE:-cr.flyte.org/flyteorg/flyte-binary-v2:sha-d9e0ebe97be436c7c03c13a8243d3b399d1729e7}"
 TASK_IMAGE="${TASK_IMAGE:-armada-flyte-task:v1}"
-FLYTE_CHART="${FLYTE_CHART:-$ROOT/../flyte/charts/flyte-binary}"
+# Published flyte-binary chart from the flyteorg helm repo. Set FLYTE_CHART to a local path (e.g. a
+# flyteorg/flyte checkout) to use an unreleased chart. A local path skips the version pin.
+FLYTE_CHART="${FLYTE_CHART:-flyteorg/flyte-binary}"
+FLYTE_CHART_VERSION="${FLYTE_CHART_VERSION:-v2.0.27}"
 HOST_IP="${HOST_IP:-$(ipconfig getifaddr en0 2>/dev/null || hostname -I | awk '{print $1}')}"
 C0="$ROOT/.venv/bin/c0"
 
@@ -41,13 +45,6 @@ ensure_host_port() {
   echo "    port-forward localhost:$port -> $svc:$target"
 }
 
-if [ ! -d "$FLYTE_CHART" ]; then
-  echo "flyte-binary chart not found at $FLYTE_CHART" >&2
-  echo "Clone the flyte fork and set FLYTE_CHART, e.g." >&2
-  echo "  git clone -b armada https://github.com/dejanzele/flyte.git ../flyte" >&2
-  exit 1
-fi
-
 echo "==> using kind cluster '$KIND_CLUSTER', host IP $HOST_IP"
 # The armada Kind target writes a repo-local kubeconfig (.kube/external/config) rather than merging
 # into ~/.kube/config. Honour an already-set KUBECONFIG. Otherwise select the kind context.
@@ -62,11 +59,19 @@ kubectl -n flyte rollout status deploy/minio --timeout=120s >/dev/null
 
 echo "==> 2/5  install flyte-binary (v2)"
 # Preload the backend image so the pod uses it without a registry round trip. Falls through to a
-# normal pull if the image is not in local docker.
+# normal pull if the image is not in local docker (the default stock image is pulled from cr.flyte.org).
 kind load docker-image "$FLYTE_IMAGE" --name "$KIND_CLUSTER" >/dev/null 2>&1 || true
+# A local chart path (FLYTE_CHART points at a directory) is used as-is. Otherwise pull the pinned
+# version from the published flyteorg helm repo.
+chart_version_arg=()
+if [ ! -d "$FLYTE_CHART" ]; then
+  helm repo add flyteorg https://helm.flyte.org >/dev/null 2>&1 || true
+  helm repo update flyteorg >/dev/null 2>&1 || true
+  chart_version_arg=(--version "$FLYTE_CHART_VERSION")
+fi
 rendered="$(mktemp)"
 sed "s/__HOST_IP__/${HOST_IP}/g" flyte-binary-values.yaml > "$rendered"
-helm upgrade --install flyte-binary "$FLYTE_CHART" -n flyte -f "$rendered" >/dev/null
+helm upgrade --install flyte-binary "$FLYTE_CHART" "${chart_version_arg[@]}" -n flyte -f "$rendered" >/dev/null
 rm -f "$rendered"
 kubectl -n flyte rollout status deploy/flyte-binary --timeout=180s >/dev/null
 
