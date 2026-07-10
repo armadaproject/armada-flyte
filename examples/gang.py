@@ -1,4 +1,4 @@
-"""Armada-specific: GANG scheduling (all-or-nothing co-scheduling of a distributed job).
+"""GANG scheduling (all-or-nothing co-scheduling of a distributed job).
 
     seed shards            give each worker a slice of a shared dataset
     worker (x N) ONE GANG  N co-dependent workers, scheduled all-or-nothing by Armada

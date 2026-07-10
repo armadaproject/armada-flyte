@@ -57,16 +57,17 @@ the connector-service plugin registered and the routing config.
 
 ## Deploy the connector into the backend
 
-Running `c0` on a host is one option. To run the connector inside the backend cluster instead,
-`deploy/app.py` defines it as a `flyte.app.ConnectorEnvironment`. Against a Flyte backend
-(`flyte.init_from_config()` pointed at one), deploy it with:
+Running `c0` on a host is one option. To run the connector inside the backend cluster instead, deploy it
+as a Deployment with [kubernetes/connector.yaml](kubernetes/connector.yaml):
 
 ```bash
-python deploy/app.py        # calls flyte.deploy(connector)
+kubectl apply -f deploy/kubernetes/connector.yaml
 ```
 
-This builds the image and creates the connector deployment. After that, a task whose `task_type` is
-`armada` is routed to it automatically.
+It runs the published `dpejcev/armada-flyte-connector` image (built from [Dockerfile](Dockerfile)). Adjust
+the manifest's `namespace`, `ARMADA_URL`, and `FLYTE_BLOB_*` for your cluster. Point the backend's
+`defaultConnector.endpoint` (previous section) at `armada-flyte-connector.<namespace>:8000`, and a task
+whose `task_type` is `armada` routes to it.
 
 ## Two things a backend run depends on
 

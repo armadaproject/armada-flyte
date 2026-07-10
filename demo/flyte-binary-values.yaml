@@ -1,12 +1,7 @@
-# flyte-binary (v2) values for the local quickstart.
+# flyte-binary (v2) chart values for the local quickstart.
 #
-# Derived from the flyte-devbox config, with the bundled rustfs/postgres swapped for the external
-# minio.yaml and postgres.yaml in this directory, and the connector pointed at the host-run armada
-# connector (c0).
-#
-# The __HOST_IP__ placeholder (in configuration.inline.plugins.connector-service.defaultConnector.endpoint)
-# is filled at install time with the host's LAN IP (setup.sh). The flyte-binary pods dial the connector,
-# which is a process on the host, so they need its LAN address rather than a cluster DNS name.
+# Points storage at the minio.yaml and postgres.yaml in this directory, and routes the `armada` task type
+# to the in-cluster armada-flyte-connector Service, which the flyte-binary pods reach over cluster DNS.
 
 fullnameOverride: flyte-binary
 
@@ -88,14 +83,14 @@ configuration:
           endpoint: http://localhost:30900
 
     plugins:
-      # The connector that armada tasks are delegated to. Runs on the host (c0), reachable from in-cluster
-      # Flyte at the host LAN IP. supportedTaskTypes is what makes the plugin match the `armada` task
-      # type to this connector. Without it, Flyte reports "no connector found for task type [armada]".
-      # This must live under inline.plugins because the chart's top-level configuration.connectorService
-      # is not wired into the config.
+      # The connector that armada tasks are delegated to. Runs in-cluster as the armada-flyte-connector
+      # Deployment/Service (deploy/kubernetes/connector.yaml), reached over cluster DNS. supportedTaskTypes
+      # is what makes the plugin match the `armada` task type to this connector. Without it, Flyte reports
+      # "no connector found for task type [armada]". This must live under inline.plugins because the chart's
+      # top-level configuration.connectorService is not wired into the config.
       connector-service:
         defaultConnector:
-          endpoint: "dns:///__HOST_IP__:8000"
+          endpoint: "dns:///armada-flyte-connector.flyte.svc.cluster.local:8000"
           insecure: true
         supportedTaskTypes:
           - armada
@@ -134,11 +129,17 @@ enabled_plugins:
         container_array: k8s-array
         armada: connector-service
 
-# Expose the Flyte API on a fixed NodePort. setup.sh port-forwards localhost:30080 to it.
+# Expose the Flyte API on a fixed NodePort. setup.sh port-forwards localhost:30080 to it, and the
+# examples submit there.
 service:
   type: NodePort
   nodePorts:
     http: 30080
+
+# The console is served through its own sidecar proxy (console-proxy.yaml) and the API through a
+# port-forward, so no chart-managed ingress is needed.
+ingress:
+  create: false
 
 # Flyte needs broad RBAC in a dev sandbox to create per-namespace resources.
 rbac:

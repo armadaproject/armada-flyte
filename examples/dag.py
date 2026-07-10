@@ -1,4 +1,4 @@
-"""Armada-specific: a DAG with a gang in the middle.
+"""DAG with a gang in the middle.
 
     generate(n)          one job builds a shared dataset
     calc (x N) ONE GANG  N co-scheduled workers, each on a slice, all-or-nothing

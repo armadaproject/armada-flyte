@@ -1,0 +1,51 @@
+# Same-origin sidecar proxy for the Flyte console.
+#
+# The flyteconsole-v2 client makes ConnectRPC calls to the Flyte API and must reach it on the same
+# origin it was served from. This nginx runs as a sidecar in the console pod and routes one port to
+# both: /v2 (and its assets) to the console container on localhost, everything else (the /flyteidl2.*
+# ConnectRPC API) to flyte-binary-http.
+#
+# Running it in the pod means one URL, localhost:5001, is valid from both sides: the browser reaches it
+# through the port-forward, and the console's own server-side render reaches it on the pod's loopback.
+# setup.sh applies this ConfigMap and patches the console Deployment to add the sidecar.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: flyte-console-proxy
+  namespace: flyte
+data:
+  nginx.conf: |
+    events {}
+    http {
+      server {
+        listen 5001;
+        location /v2 {
+          proxy_pass http://localhost:8080;
+          proxy_set_header Host $host;
+        }
+        location / {
+          proxy_pass http://flyte-binary-http.flyte.svc.cluster.local:8090;
+          proxy_set_header Host $host;
+          proxy_http_version 1.1;
+        }
+      }
+    }
+---
+# A stable service for the console sidecar. setup.sh port-forwards it to localhost:5001, which serves
+# both the browser and the console's own server-side render (the pod reaches the sidecar on loopback).
+apiVersion: v1
+kind: Service
+metadata:
+  name: flyte-console-ui
+  namespace: flyte
+  labels:
+    app: flyte-console-ui
+spec:
+  selector:
+    app.kubernetes.io/component: console
+    app.kubernetes.io/instance: flyte-binary
+    app.kubernetes.io/name: flyte-binary
+  ports:
+    - name: ui
+      port: 5001
+      targetPort: 5001

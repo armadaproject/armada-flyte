@@ -1,0 +1,61 @@
+# The Armada connector as an in-cluster gRPC service.
+#
+# A Flyte backend routes `armada` tasks to it at armada-flyte-connector.<namespace>:8000. Configure
+# the Armada endpoint and the blob store the Armada pods use via the env vars below. For real
+# deployments move the blob credentials into a Secret rather than the inline literals shown here.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: armada-flyte-connector
+  namespace: flyte
+  labels:
+    app: armada-flyte-connector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: armada-flyte-connector
+  template:
+    metadata:
+      labels:
+        app: armada-flyte-connector
+    spec:
+      containers:
+        - name: connector
+          image: dpejcev/armada-flyte-connector:0.1.0
+          # The image runs `c0 --port 8000` by default, serving the connector on :8000.
+          env:
+            # Where the connector submits jobs. This is the in-cluster Armada server. The connector
+            # runs in the flyte namespace and the server in the armada namespace, so it is qualified.
+            - name: ARMADA_URL
+              value: "armada-server.armada.svc.cluster.local:50051"
+            # The blob store the Armada pods read and write. Must be reachable from those pods.
+            - name: FLYTE_BLOB_ENDPOINT
+              value: "http://minio.flyte.svc.cluster.local:9000"
+            - name: FLYTE_BLOB_ACCESS_KEY
+              value: "minio"
+            - name: FLYTE_BLOB_SECRET_KEY
+              value: "minio12345"
+          ports:
+            - name: grpc
+              containerPort: 8000
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: armada-flyte-connector
+  namespace: flyte
+  labels:
+    app: armada-flyte-connector
+spec:
+  selector:
+    app: armada-flyte-connector
+  ports:
+    - name: grpc
+      port: 8000
+      targetPort: 8000

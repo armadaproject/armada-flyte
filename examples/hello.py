@@ -1,6 +1,9 @@
 """Hello world: the smallest Armada task. One @env.task, one line of Armada config.
 
     ./.venv/bin/python examples/hello.py                  # runs on Armada, shows in the Flyte UI
+
+Next: function.py does real work, then fanout.py, gang.py, and dag.py build up to a gang inside a DAG.
+See examples/README.md for the ordered tour.
 """
 
 from __future__ import annotations

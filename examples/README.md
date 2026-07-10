@@ -1,10 +1,11 @@
 # Examples
 
 Write ordinary Flyte 2 Python. Each `@env.task` runs in an Armada-scheduled pod. The only
-Armada-specific line is `plugin_config=ArmadaConfig(queue=...)`; everything else (resources,
+Armada-specific line is `plugin_config=ArmadaConfig(queue=...)`. Everything else (resources,
 chaining, fan-out, typed data) is stock Flyte.
 
-Five examples, in order:
+Five examples that build up in order. Start at the top and work down: each adds one idea, ending with
+a gang inside a DAG.
 
 | File | Shows | Expected output |
 | --- | --- | --- |
@@ -16,14 +17,16 @@ Five examples, in order:
 
 ## Run one
 
-The runner submits the example through the Flyte backend, so the run shows up in the Flyte UI:
+The runner submits the example through the Flyte backend. Each example prints its typed result and a
+link to the run in the Flyte UI:
 
 ```bash
 ./.venv/bin/python examples/hello.py
 ```
 
-Pass any example as the argument. Prerequisite: a running Armada cluster and a Flyte 2 backend (see
-[../docs/getting-started.md](../docs/getting-started.md)).
+Run any example the same way. Prerequisite: a Flyte 2 backend with the connector. The
+[quickstart](../demo/) walks the setup end to end, or point at your own
+([../docs/getting-started.md](../docs/getting-started.md)).
 
 ## What you write
 
@@ -45,4 +48,4 @@ async def greet(name: str) -> str:
 
 Resources are required (Armada rejects a job without them). Declare them with `flyte.Resources`
 on the environment, or per task with `@env.task(resources=...)`. Need a GPU? `flyte.Resources(gpu=1)`.
-`_runner.py` is the shared helper the examples call to run; it is not an example itself.
+`_runner.py` is the shared helper the examples call to run. It is not an example itself.
