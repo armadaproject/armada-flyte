@@ -15,11 +15,10 @@ backend** whose executor routes `armada` tasks to the connector (see
 
 ## Install the connector
 
-On Apple Silicon use an arm64 Python. An x86_64 interpreter cannot load Flyte's native `obstore`
-wheel. From a checkout of this repo:
+From a checkout of this repo (Python 3.10 or newer):
 
 ```
-python3.11 -m venv .venv
+python3 -m venv .venv
 ./.venv/bin/pip install -e ".[dev]"
 ```
 
@@ -31,7 +30,8 @@ pip install "armada-flyte @ git+https://github.com/armadaproject/armada-flyte.gi
 
 ## Run the connector
 
-The connector is a gRPC service. Run it where your Flyte backend can reach it:
+The connector is a gRPC service. `c0` is Flyte's connector-runtime binary, and installing this repo
+registers the Armada connector into it. Run it where your Flyte backend can reach it:
 
 ```
 ARMADA_URL=<armada-host>:50051 \
@@ -48,36 +48,39 @@ Connector Name     Support Task Types
 Armada Connector   armada (0)
 ```
 
-To run the connector inside the backend cluster instead of on a host, deploy it with `deploy/app.py`
-(see [../deploy/README.md](../deploy/README.md)).
+To run the connector inside the backend cluster instead of on a host, deploy it as a Deployment with
+[../deploy/kubernetes/connector.yaml](../deploy/kubernetes/connector.yaml) (see
+[../deploy/README.md](../deploy/README.md)).
 
 ## Submit a task
 
-Tasks run in a generic image (`armada-flyte-task:v1` by default) that `a0` fast-registers your code
-into at runtime, so one image serves every example. Build it once from the repo root and make it
+Tasks run in a generic image (`armada-flyte-task:v1` by default). Flyte's task-runtime bootstrap `a0`
+fast-registers your code into that image at runtime, so one image serves every example. Build it once
+from the repo root and make it
 available to the Armada cluster (`kind load docker-image armada-flyte-task:v1 --name <cluster>`, or
 push to a registry the cluster can pull from):
 
 ```
 docker build -t armada-flyte-task:v1 -f- . <<'EOF'
-FROM python:3.11-slim
+FROM python:3.13-slim
 COPY pyproject.toml README.md ./
 COPY src ./src
 RUN pip install --no-cache-dir "flyte==2.5.8" .
 EOF
 ```
 
-The examples target a backend at `localhost:30080` (adjust `flyte.init(...)` in
-[examples/_runner.py](../examples/_runner.py) for yours) and queue `flyte`:
+The examples submit to `$FLYTE_ENDPOINT` (default `localhost:30080`) on queue `flyte`, and build the
+run's UI link from `$FLYTE_UI_BASE`. Set both for your backend:
 
 ```
-./.venv/bin/python examples/hello.py
+FLYTE_ENDPOINT=<flyte-host>:<port> FLYTE_UI_BASE=https://<your-console>/v2 \
+  ./.venv/bin/python examples/hello.py
 ```
 
-It prints a UI link. Open it to watch Armada schedule the pod, run the `@env.task`, and record the
-typed result. Then try `examples/fanout.py` (a parallel fan-out), `examples/gang.py` (an
-all-or-nothing gang), and `examples/dag.py` (a gang inside a DAG). The example surface is described
-in [../examples/](../examples/).
+Each example prints its typed result and a link to the run in the Flyte UI (status, graph, logs). Work
+through the rest in order: `examples/fanout.py` (a parallel fan-out), `examples/gang.py` (an
+all-or-nothing gang), and `examples/dag.py` (a gang inside a DAG). See
+[../examples/](../examples/) for the full set.
 
 ## Configuration
 

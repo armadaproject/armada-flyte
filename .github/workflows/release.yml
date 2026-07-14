@@ -1,0 +1,76 @@
+name: Release
+
+# Publishes the connector image after CI succeeds on a v* tag (push the tag, or create a GitHub
+# Release, which creates the tag). Mirrors the armada / armada-operator release flow.
+on:
+  workflow_run:
+    types: [completed]
+    workflows: [CI]
+    # For a tag push, GitHub sets the workflow_run's head_branch to the tag name.
+    branches:
+      - v*
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    # Only for a successful CI run of a tag push, from the canonical repo.
+    if: github.event.workflow_run.event == 'push' && github.event.workflow_run.conclusion == 'success' && github.repository_owner == 'armadaproject'
+    name: Validate revision
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # The ref must be a semver tag (vX.Y.Z) that points at a commit on main.
+      - name: Validate ref
+        run: |
+          ref='${{ github.event.workflow_run.head_branch }}'
+          sha='${{ github.event.workflow_run.head_sha }}'
+          if ! { [[ $ref =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] &&
+                 [ "$(git tag --points-at "$sha" | grep -cE "^$ref\$")" -eq 1 ] &&
+                 [ "$(git branch --contains="$sha" main | wc -l)" -eq 1 ]; }; then
+            echo "::error ::Invalid ref $ref $sha: must be a semver tag on main"
+            exit 1
+          fi
+
+  release:
+    name: Publish connector image
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: armada-dockerhub
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+      - name: Version from the tag, checked against the package
+        id: meta
+        env:
+          TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          version="${TAG#v}"
+          pyproject_version=$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml)
+          if [ "$version" != "$pyproject_version" ]; then
+            echo "tag $version does not match pyproject version $pyproject_version" >&2
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Docker login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_PASS }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          # Reuse the layers CI's build-image job already built for this commit.
+          cache-from: type=gha
+          push: true
+          tags: |
+            gresearch/armada-flyte-connector:${{ steps.meta.outputs.version }}
+            gresearch/armada-flyte-connector:latest

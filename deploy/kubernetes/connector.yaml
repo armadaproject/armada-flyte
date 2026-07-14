@@ -1,0 +1,91 @@
+# The Armada connector as an in-cluster gRPC service.
+#
+# A Flyte backend routes `armada` tasks to it at armada-flyte-connector.<namespace>:8000. Configure
+# the Armada endpoint and the blob store the Armada pods use via the env vars below. The blob
+# credentials come from the armada-flyte-connector-blob Secret. The values shipped here are the demo
+# minio credentials, so replace them for a real deployment.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: armada-flyte-connector-blob
+  namespace: flyte
+type: Opaque
+stringData:
+  access-key: "minio"
+  secret-key: "minio12345"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: armada-flyte-connector
+  namespace: flyte
+  labels:
+    app: armada-flyte-connector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: armada-flyte-connector
+  template:
+    metadata:
+      labels:
+        app: armada-flyte-connector
+    spec:
+      containers:
+        - name: connector
+          # The tag must match `version` in pyproject.toml: the release workflow refuses to
+          # publish a tag that disagrees with the package version.
+          image: gresearch/armada-flyte-connector:0.2.0
+          env:
+            # Where the connector submits jobs. This is the in-cluster Armada server. The connector
+            # runs in the flyte namespace and the server in the armada namespace, so it is qualified.
+            - name: ARMADA_URL
+              value: "armada-server.armada.svc.cluster.local:50051"
+            # The blob store the Armada pods read and write. Must be reachable from those pods.
+            - name: FLYTE_BLOB_ENDPOINT
+              value: "http://minio.flyte.svc.cluster.local:9000"
+            - name: FLYTE_BLOB_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: armada-flyte-connector-blob
+                  key: access-key
+            - name: FLYTE_BLOB_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: armada-flyte-connector-blob
+                  key: secret-key
+          ports:
+            - name: grpc
+              containerPort: 8000
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          readinessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: armada-flyte-connector
+  namespace: flyte
+  labels:
+    app: armada-flyte-connector
+spec:
+  selector:
+    app: armada-flyte-connector
+  ports:
+    - name: grpc
+      port: 8000
+      targetPort: 8000
