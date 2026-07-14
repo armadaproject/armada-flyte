@@ -16,14 +16,15 @@ Instead of scheduling that container itself, Flyte routes the task to the Armada
 submits it as an Armada job. Armada schedules the pod onto a cluster it manages, `a0` runs there, and
 the typed result flows back through the shared blob store. Flyte reads that result directly, so its
 lineage and typed-data features are untouched. The connector delegates scheduling only. It never
-touches the data plane and never synthesizes an output (`connector.py:362-364`).
+touches the data plane and never synthesizes an output (`connector.py`).
 
 The pieces (`docs/getting-started.md`):
 
 - Flyte 2 runs as `flyte-binary`: the control plane, the UI, and the `TaskAction` reconciler.
 - Armada's control plane submits and schedules jobs. Its executor creates the job pods on a
   Kubernetes cluster.
-- The connector runs as a host process that bridges the two.
+- The connector runs as a gRPC service that bridges the two (in-cluster in the devbox, or anywhere a
+  Flyte backend can reach it).
 
 Where these run is up to you. The blob store is shared, so Flyte and the Armada pods address the
 same bucket.
@@ -32,27 +33,28 @@ same bucket.
 
 ### The connector service (c0)
 
-The connector runs as an out-of-process gRPC service launched as `c0`, and the Flyte backend calls
+The connector runs as an out-of-process gRPC service launched as `c0` (Flyte's connector-runtime
+binary), and the Flyte backend calls
 `CreateTask` / `GetTask` / `DeleteTask` on it. It holds no per-job state in the object itself,
-caching only the gRPC channel and its resolved config (`connector.py:145-161`). All per-job state
+caching only the gRPC channel and its resolved config (`connector.py`). All per-job state
 lives in `ArmadaJobMetadata`, which Flyte persists and hands back on every call.
 
 ### `ArmadaFunctionTask` and `ArmadaConfig` (authoring surface)
 
 `src/armada_flyte/task.py` is what a workflow author touches.
 
-- `ArmadaConfig` (`task.py:19-38`) is a dataclass of per-task Armada submission knobs: `queue`
+- `ArmadaConfig` (`task.py`) is a dataclass of per-task Armada submission knobs: `queue`
   (default `"flyte"`), `job_set_id` (default `"flyte-dag"`), `namespace` (default `"default"`),
-  `priority` (default `1`), optional `cpu`/`memory` overrides (`None` means defer to
-  `flyte.Resources`), and the gang triple `gang_id` / `gang_cardinality` / `gang_node_uniformity_label`.
-  It is deliberately minimal. Resources are normally declared the stock-Flyte way, and `ArmadaConfig`
-  carries only the Armada-specific fields.
-- `ArmadaFunctionTask(AsyncConnectorExecutorMixin, AsyncFunctionTaskTemplate)` (`task.py:41-64`) is
-  the task type. `_TASK_TYPE = "armada"` (`task.py:57`), and `__post_init__` sets `self.task_type`
-  to it (`task.py:59-61`). That string routes the task to the connector. `custom_config()`
-  returns `asdict(self.plugin_config)` (`task.py:63-64`), which Flyte serializes into the task
+  `priority` (default `1`), and optional `cpu`/`memory` overrides (`None` means defer to
+  `flyte.Resources`). It is deliberately minimal. Resources are normally declared the stock-Flyte way,
+  and `ArmadaConfig` carries only the Armada-specific fields. Gang scheduling is expressed separately
+  with `armada_flyte.Gang` (see [Gang scheduling](#gang-scheduling)), not through `ArmadaConfig`.
+- `ArmadaFunctionTask(AsyncConnectorExecutorMixin, AsyncFunctionTaskTemplate)` (`task.py`) is
+  the task type. `_TASK_TYPE = "armada"` (`task.py`), and `__post_init__` sets `self.task_type`
+  to it (`task.py`). That string routes the task to the connector. `custom_config()`
+  returns `asdict(self.plugin_config)` (`task.py`), which Flyte serializes into the task
   template's `custom` field.
-- `TaskPluginRegistry.register(ArmadaConfig, ArmadaFunctionTask)` (`task.py:69`) wires the two
+- `TaskPluginRegistry.register(ArmadaConfig, ArmadaFunctionTask)` (`task.py`) wires the two
   together. Any `TaskEnvironment(plugin_config=ArmadaConfig(...))` builds Armada-typed tasks.
 
 `ArmadaConfig` is serialized and persisted in the control plane, which is why credentials never go
@@ -62,18 +64,18 @@ here (see next section).
 
 `src/armada_flyte/config.py` holds the connector's own settings.
 
-- `ConnectorConfig` (`config.py:23-36`) is a frozen dataclass: `armada_url` (default
+- `ConnectorConfig` (`config.py`) is a frozen dataclass: `armada_url` (default
   `"localhost:50051"`), and `blob_endpoint` / `blob_access_key` / `blob_secret_key` (default empty).
-  It is marked as the extension point for `auth_token` / `tls` / `ca_cert` (`config.py:34-36`).
-- Credentials live here, on the connector, never in `ArmadaConfig` (`config.py:4-6`). `ArmadaConfig`
+  It is marked as the extension point for `auth_token` / `tls` / `ca_cert` (`config.py`).
+- Credentials live here, on the connector, never in `ArmadaConfig` (`config.py`). `ArmadaConfig`
   is serialized into the task template and persisted, so a token there would leak into the control
   plane DB.
-- Resolution has three layers (`config.py:8-13`): dataclass defaults, then environment
+- Resolution has three layers (`config.py`): dataclass defaults, then environment
   (`from_env` reads `ARMADA_URL` and `FLYTE_BLOB_ENDPOINT` / `FLYTE_BLOB_ACCESS_KEY` /
-  `FLYTE_BLOB_SECRET_KEY`, `config.py:38-46`), then in-code `configure(**kwargs)` which validates
-  keys and stashes them in a module-level `_overrides` (`config.py:53-73`). `resolve_config()`
-  composes them: `from_env()` then `replace(cfg, **_overrides)` (`config.py:76-79`).
-- Resolution is lazy, on first connector use (`connector.py:148-152`). There is no
+  `FLYTE_BLOB_SECRET_KEY`, `config.py`), then in-code `configure(**kwargs)` which validates
+  keys and stashes them in a module-level `_overrides` (`config.py`). `resolve_config()`
+  composes them: `from_env()` then `replace(cfg, **_overrides)` (`config.py`).
+- Resolution is lazy, on first connector use (`connector.py`). There is no
   set-env-before-import trap, but `configure()` must run before the first task, because the client
   is built once and cached.
 
@@ -81,7 +83,7 @@ here (see next section).
 
 A single shared S3-compatible bucket is addressed by the backend, the client, and the Armada pods
 alike. The connector injects the pod-reachable blob endpoint onto each job
-(`connector.py:_storage_env`). The `a0` container reads inputs and writes `outputs.pb` there, and
+(`_storage_env` in `connector.py`). The `a0` container reads inputs and writes `outputs.pb` there, and
 Flyte reads `outputs.pb` directly.
 
 ## End-to-end data flow for one task
@@ -90,49 +92,49 @@ Flyte reads `outputs.pb` directly.
    renders the task into a container whose entrypoint is `a0`, and serializes `ArmadaConfig` into
    the task template's `custom` field.
 
-2. Route. The task's `task_type` is `"armada"` (`task.py:57`), which matches
-   `ArmadaConnector.task_type_name` (`connector.py:138`). The Flyte backend routes it to the
+2. Route. The task's `task_type` is `"armada"` (`task.py`), which matches
+   `ArmadaConnector.task_type_name` (`connector.py`). The Flyte backend routes it to the
    connector service.
 
-3. `create` (`connector.py:280-330`). The connector reads back `cfg` from `task_template.custom` via
-   `json_format.MessageToDict` (`connector.py:288`), defaulting `queue` to `"flyte"` and
-   `job_set_id` to `"flyte-dag"` (`connector.py:289-290`). It requires `container.image` or raises
-   `ValueError` (`connector.py:292-296`). This container is Flyte's rendered `a0` entrypoint. It
-   wraps the container into a pod (`_pod_from_flyte_container`, `connector.py:252-278`): one
+3. `create` (`connector.py`). The connector reads back `cfg` from `task_template.custom` via
+   `json_format.MessageToDict` (`connector.py`), defaulting `queue` to `"flyte"` and
+   `job_set_id` to `"flyte-dag"` (`connector.py`). It requires `container.image` or raises
+   `ValueError` (`connector.py`). This container is Flyte's rendered `a0` entrypoint. It
+   wraps the container into a pod (`_pod_from_flyte_container`, `connector.py`): one
    container named `armada-task`, the image and `command` taken verbatim from Flyte's rendered
    container (the connector does not synthesize the `a0` command), `args` passed through
    `_runtime_args` (see below), `imagePullPolicy="IfNotPresent"` so a `kind load`ed image is used,
    and env built from the rendered env then overlaid with `_storage_env()` so the pod-reachable blob
-   endpoint wins over any in-cluster endpoint the backend baked in (`connector.py:256-262`). The pod
-   spec sets `terminationGracePeriodSeconds=0` and `restartPolicy="Never"` (`connector.py:274-278`).
+   endpoint wins over any in-cluster endpoint the backend baked in (`connector.py`). The pod
+   spec sets `terminationGracePeriodSeconds=0` and `restartPolicy="Never"` (`connector.py`).
    The connector builds a job request item with `priority`, `namespace`, the pod spec, a
-   `flyte.org/connector: armada` label, and gang annotations (`connector.py:305-311`), then calls
-   `submit_jobs(queue, job_set_id, [item])` through the `_call` wrapper (`connector.py:312-318`). If
-   `resp.job_response_items[0].error` is set it raises `RuntimeError` (`connector.py:319-321`). It
-   returns `ArmadaJobMetadata(job_id, job_set_id, queue, output_prefix=...)` (`connector.py:325-330`).
+   `flyte.org/connector: armada` label, and gang annotations (`connector.py`), then calls
+   `submit_jobs(queue, job_set_id, [item])` through the `_call` wrapper (`connector.py`). If
+   `resp.job_response_items[0].error` is set it raises `RuntimeError` (`connector.py`). It
+   returns `ArmadaJobMetadata(job_id, job_set_id, queue, output_prefix=...)` (`connector.py`).
 
 4. Armada schedules the pod. Armada queues the job, schedules it under fair-share, and its executor
    creates the pod on the Armada cluster.
 
 5. `a0` runs. It reads typed inputs from the blob store, runs the user function, and writes typed
    `outputs.pb` (or `error.pb` on failure) to its per-action blob prefix. Flyte reads `outputs.pb`
-   directly on success (`connector.py:362-364`).
+   directly on success (`connector.py`).
 
-6. `get` polls (`connector.py:356-372`). The connector calls
-   `get_job_status([resource_meta.job_id])` through `_call` (`connector.py:357-359`), looks up the
-   state (defaulting to `UNKNOWN` if absent, `connector.py:360`), and maps it to a Flyte phase via
-   `_ARMADA_STATE_TO_PHASE`, defaulting to `RUNNING` (`connector.py:361`). On a terminal
+6. `get` polls (`connector.py`). The connector calls
+   `get_job_status([resource_meta.job_id])` through `_call` (`connector.py`), looks up the
+   state (defaulting to `UNKNOWN` if absent, `connector.py`), and maps it to a Flyte phase via
+   `_ARMADA_STATE_TO_PHASE`, defaulting to `RUNNING` (`connector.py`). On a terminal
    `SUCCEEDED`/`FAILED` it checks `a0`'s error file (see the handshake section) and can override the
-   result to `FAILED` (`connector.py:365-368`). Otherwise it returns the mapped phase with a message
-   naming the Armada state (`connector.py:369-372`).
+   result to `FAILED` (`connector.py`). Otherwise it returns the mapped phase with a message
+   naming the Armada state (`connector.py`).
 
 7. Terminal. Once the phase is terminal, the framework stops polling. On `SUCCEEDED` Flyte reads the
-   typed output from the blob store. `delete` (`connector.py:374-382`) cancels the job via
+   typed output from the blob store. `delete` (`connector.py`) cancels the job via
    `cancel_jobs(queue, job_set_id, job_id)` using the persisted metadata (all three fields needed).
 
 ## State mapping
 
-The connector maps Armada `JobState` onto Flyte's `TaskExecution.Phase` (`connector.py:48-60`):
+The connector maps Armada `JobState` onto Flyte's `TaskExecution.Phase` (`connector.py`):
 
 | Armada JobState                 | Flyte phase        | Note                                     |
 |---------------------------------|--------------------|------------------------------------------|
@@ -145,9 +147,9 @@ The connector maps Armada `JobState` onto Flyte's `TaskExecution.Phase` (`connec
 | `CANCELLED`                     | `ABORTED`          |                                          |
 | `PREEMPTED`                     | `RETRYABLE_FAILED` | preemption is expected, so Flyte retries |
 
-Mapping `PREEMPTED` to `RETRYABLE_FAILED` is deliberate (`connector.py:47`). Armada preempts jobs as
+Mapping `PREEMPTED` to `RETRYABLE_FAILED` is deliberate (`connector.py`). Armada preempts jobs as
 part of normal fair-share scheduling, so the node should retry rather than fail the run. Any state
-not in the table falls back to `RUNNING` (`connector.py:361`), which keeps the connector polling
+not in the table falls back to `RUNNING` (`connector.py`), which keeps the connector polling
 rather than failing on an unrecognized state.
 
 ## The blob and a0 handshake
@@ -157,23 +159,23 @@ makes sure the pod can reach the blob store and that `a0`'s arguments are comple
 
 ### Storage env injection
 
-`_storage_env` (`connector.py:183-196`) injects `FLYTE_AWS_ENDPOINT` / `FLYTE_AWS_ACCESS_KEY_ID` /
+`_storage_env` (`connector.py`) injects `FLYTE_AWS_ENDPOINT` / `FLYTE_AWS_ACCESS_KEY_ID` /
 `FLYTE_AWS_SECRET_ACCESS_KEY` onto the pod, which `a0` reads via `flyte.storage.S3.auto()`. The name
 split is deliberate: the connector reads its own `FLYTE_BLOB_*` env (via `ConnectorConfig`) but
 injects `FLYTE_AWS_*`, exactly as FlytePropeller does for in-cluster task pods. These are applied
-after the container's own env (`connector.py:260-262`) so the pod-reachable NodePort endpoint
+after the container's own env (`connector.py`) so the pod-reachable NodePort endpoint
 overrides any in-cluster endpoint the backend baked into the container. If `blob_endpoint` is empty,
-nothing is injected (`connector.py:190-191`).
+nothing is injected (`connector.py`).
 
 ### The terminal error read
 
 `a0` can write `error.pb` while the pod still exits 0, so Armada, which only sees the pod exit, may
-report the job `SUCCEEDED` even though the task failed (`connector.py:336-339`). So `get` reads the
-error file on any terminal `SUCCEEDED`/`FAILED` and lets it decide (`connector.py:365-368`).
-`_task_error` (`connector.py:332-354`) returns `None` if there is no output prefix, otherwise loads
+report the job `SUCCEEDED` even though the task failed (`connector.py`). So `get` reads the
+error file on any terminal `SUCCEEDED`/`FAILED` and lets it decide (`connector.py`).
+`_task_error` (`connector.py`) returns `None` if there is no output prefix, otherwise loads
 the error via `flyte._internal.runtime.io.load_error` under `asyncio.wait_for(..., timeout=8)`
-(`connector.py:349-351`) and returns `err.message or None`. A bare `except Exception` maps any
-failure to `None` (`connector.py:353`). The 8-second bound matters because when the connector runs
+(`connector.py`) and returns `err.message or None`. A bare `except Exception` maps any
+failure to `None` (`connector.py`). The 8-second bound matters because when the connector runs
 as the `c0` service, Flyte's global storage may not point at the pods' blob store, and an unbounded
 read would hang the poll loop and never report the job as terminal. On timeout it falls back to the
 Armada-reported phase (and on the backend, FlytePropeller reads `error.pb` itself anyway).
@@ -182,33 +184,47 @@ Armada-reported phase (and on the backend, FlytePropeller reads `error.pb` itsel
 
 In backend (webapi/connector) execution there is no FlytePropeller to fill the runtime template
 placeholders that Flyte leaves in `a0`'s args, so the connector does that in `_runtime_args`
-(`connector.py:217-250`). Every substitution is conditional, so it is a no-op on already-complete
-local args (`connector.py:224-225`). It substitutes `{{.runName}}` and `{{.actionName}}` from the
-task execution metadata (`connector.py:227-242`), pulling org from `meta.labels.get("organization")`.
+(`connector.py`). Every substitution is conditional, so it is a no-op on already-complete
+local args (`connector.py`). It substitutes `{{.runName}}` and `{{.actionName}}` from the
+task execution metadata (`connector.py`), pulling org from `meta.labels.get("organization")`.
 Because `a0` requires it, it appends `--run-base-dir` if absent, computed from the output prefix by
-stripping the trailing `/<run>/<action>/<attempt>` via `rsplit("/", 2)[0]` (`connector.py:243-245`).
-It appends `--org` / `--project` / `--domain` if missing (`connector.py:246-249`).
+stripping the trailing `/<run>/<action>/<attempt>` via `rsplit("/", 2)[0]` (`connector.py`).
+It appends `--org` / `--project` / `--domain` if missing (`connector.py`).
 
-`_outputs_path` (`connector.py:206-215`) scans the args for the `--outputs-path` value, the
+`_outputs_path` (`connector.py`) scans the args for the `--outputs-path` value, the
 per-action blob prefix `a0` writes `outputs.pb` / `error.pb` to. This is distinct from the base
 `output_prefix` passed to `create`. It is stored on `ArmadaJobMetadata.output_prefix`
-(`connector.py:329`) so `get` can read `error.pb` from the right place.
+(`connector.py`) so `get` can read `error.pb` from the right place.
 
 ## Gang scheduling
 
-`ArmadaConfig` exposes `gang_id`, `gang_cardinality`, and `gang_node_uniformity_label`
-(`task.py:36-38`). `_gang_annotations` (`connector.py:69-82`) translates them into Armada gang
-annotations `armadaproject.io/gangId` and `armadaproject.io/gangCardinality`, plus
-`armadaproject.io/gangNodeUniformityLabel` when set (`connector.py:64-66`, `75-81`). A job becomes a
-gang member only when `gang_id` is set and `gang_cardinality` is 2 or more. Otherwise it is an
-ordinary job with no gang annotations (`connector.py:72-74`). Jobs sharing a gang are scheduled
-all-or-nothing together.
+A gang is a set of tasks Armada schedules all-or-nothing. `armada_flyte.Gang` (`gang.py`) is the
+authoring surface: add members with `Gang.add`, then `await Gang.run()` submits them together. The
+cardinality Armada needs stamped on each member is the number of members added, and the gang id is
+generated per `run()`, so neither is set by hand and they cannot disagree with the fan-out.
 
-The `gang_id` is scoped per run. In `create` it is rewritten to `f"{gang_id}-{run_name}"`
-(`connector.py:301-303`), where `run_name` comes from
-`task_execution_id.node_execution_id.execution_id.name` (`_run_name`, `connector.py:198-204`). So
-each run forms its own gang and concurrent runs do not collide, while every gang member within a run
-still shares the same id.
+Armada drives gangs off pod annotations: `armadaproject.io/gangId`, `armadaproject.io/gangCardinality`,
+and `armadaproject.io/gangNodeUniformityLabel`. The connector sets these in `create`
+(`_gang_annotations_from_env`). The count is only known at the driver's fan-out, and Flyte hands the
+connector one task at a time with no group size in its `TaskExecutionMetadata`, so `Gang` carries the
+values down through a channel the connector does receive: per-member container env vars, set with
+`task.override(env_vars=...)`.
+
+Those transport vars use the `ARMADAFLYTE_GANG_` prefix (`gang.py`), deliberately off Armada's reserved
+`ARMADA_` namespace. Armada injects its own `ARMADA_GANG_ID` / `ARMADA_GANG_CARDINALITY` /
+`ARMADA_GANG_NODE_UNIFORMITY_LABEL_{NAME,VALUE}` into each gang pod at runtime (from the annotations),
+and its executor only adds them if absent, so a colliding name would silently shadow them. The connector
+reads the transport vars to build the annotations and strips them from the submitted pod
+(`_pod_from_flyte_container`), leaving Armada's runtime env vars authoritative for the application.
+
+A task author could hand-stamp the `ARMADAFLYTE_GANG_*` env vars to forge gang membership rather than
+go through `Gang`. The blast radius is bounded by Armada's queue permissions: you can only gang jobs you
+are allowed to submit to a queue, so forging only groups your own jobs. The connector rejects a
+non-integer cardinality with a clear error rather than crashing.
+
+Migrating from the earlier API: `ArmadaConfig` no longer has `gang_id` / `gang_cardinality` /
+`gang_node_uniformity_label`. Drop them from the config and express the gang with `Gang` instead, which
+derives the id and cardinality from the members. Passing the removed keyword raises a `TypeError`.
 
 ## How it plugs into Flyte 2
 
@@ -266,7 +282,7 @@ On the Go side, `monitor` (`flyteplugins/go/tasks/pluginmachinery/internal/webap
 drives an autorefresh cache keyed per task-execution `GeneratedName` and re-invokes the plugin's
 `Get`/`GetTask` per task on the cache resync interval. Terminal items are queued for delayed
 deletion (`monitor.go:63-70`). On the Python side a deployed backend polls `get` roughly every 3
-seconds per task (`connector.py:9-10`). The net effect is one `GetJobStatus` gRPC per in-flight task
+seconds per task (`connector.py`). The net effect is one `GetJobStatus` gRPC per in-flight task
 per resync tick, so polling is O(N). `GetJobStatus` is bulk-capable and the
 connector keeps no per-job state in the object, so a future in-memory status cache keyed by `job_id`
 (filled by one bulk poll or the job-set event stream) could collapse that to O(1) without changing
@@ -280,6 +296,6 @@ the Flyte UI. See `docs/getting-started.md` and `deploy/README.md` for running i
 
 ## Fast-register and the task image
 
-The task image is a generic runtime: `python:3.11-slim` plus `flyte` and `armada_flyte`. The user's
+The task image is a generic runtime: `python:3.13-slim` plus `flyte` and `armada_flyte`. The user's
 own code is fast-registered and pulled by `a0` at runtime, so one image serves any example. The image
 must be available to the Armada cluster, loaded with `kind load` or pushed to a registry it can pull from.

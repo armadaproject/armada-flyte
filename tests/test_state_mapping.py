@@ -6,41 +6,34 @@ import pytest
 from armada_client.armada import submit_pb2
 from flyteidl2.core.execution_pb2 import TaskExecution
 
-from armada_flyte.connector import _ARMADA_STATE_TO_PHASE, ArmadaJobMetadata
-
-EXPECTED = {
-    submit_pb2.QUEUED: TaskExecution.QUEUED,
-    submit_pb2.SUBMITTED: TaskExecution.QUEUED,
-    submit_pb2.LEASED: TaskExecution.QUEUED,
-    submit_pb2.PENDING: TaskExecution.INITIALIZING,
-    submit_pb2.RUNNING: TaskExecution.RUNNING,
-    submit_pb2.UNKNOWN: TaskExecution.RUNNING,
-    submit_pb2.SUCCEEDED: TaskExecution.SUCCEEDED,
-    submit_pb2.FAILED: TaskExecution.FAILED,
-    submit_pb2.REJECTED: TaskExecution.FAILED,
-    submit_pb2.CANCELLED: TaskExecution.ABORTED,
-    submit_pb2.PREEMPTED: TaskExecution.RETRYABLE_FAILED,
-}
-
-
-@pytest.mark.parametrize("state, phase", EXPECTED.items())
-def test_mapping(state, phase):
-    assert _ARMADA_STATE_TO_PHASE[state] == phase
+from armada_flyte.connector import ArmadaJobMetadata
 
 
 def _meta() -> ArmadaJobMetadata:
     return ArmadaJobMetadata(job_id="01job", job_set_id="flyte-dag", queue="flyte")
 
 
-async def test_get_maps_state(connector, mock_client):
-    mock_client.get_job_status.return_value.job_states = {"01job": submit_pb2.RUNNING}
-    resource = await connector.get(_meta())
-    assert resource.phase == TaskExecution.RUNNING
-    assert resource.outputs is None
+# The non-obvious translations: the three pre-run states collapse to QUEUED, and PREEMPTED is
+# RETRYABLE_FAILED (Armada preemption is not a hard failure). SUCCEEDED and the UNKNOWN
+# fallback are covered by the get() tests below.
+@pytest.mark.parametrize("armada_state, expected_phase", [
+    (submit_pb2.QUEUED, TaskExecution.QUEUED),
+    (submit_pb2.SUBMITTED, TaskExecution.QUEUED),
+    (submit_pb2.LEASED, TaskExecution.QUEUED),
+    (submit_pb2.PENDING, TaskExecution.INITIALIZING),
+    (submit_pb2.RUNNING, TaskExecution.RUNNING),
+    (submit_pb2.REJECTED, TaskExecution.FAILED),
+    (submit_pb2.CANCELLED, TaskExecution.ABORTED),
+    (submit_pb2.PREEMPTED, TaskExecution.RETRYABLE_FAILED),
+])
+async def test_get_maps_armada_state_to_phase(connector, mock_client, armada_state, expected_phase):
+    # Assert through get() (the real code path), not by mirroring the mapping table.
+    mock_client.get_job_status.return_value.job_states = {"01job": armada_state}
+    assert (await connector.get(_meta())).phase == expected_phase
 
 
 async def test_get_succeeded_does_not_synthesise_output(connector, mock_client):
-    # a0 writes the task's real typed output to the output location; the connector returns no
+    # a0 writes the task's real typed output to the output location. The connector returns no
     # synthesised output, so Flyte reads the real one from that location.
     mock_client.get_job_status.return_value.job_states = {"01job": submit_pb2.SUCCEEDED}
     resource = await connector.get(_meta())

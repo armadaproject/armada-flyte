@@ -48,15 +48,9 @@ def test_runtime_args_fills_backend_placeholders():
 
 
 def test_runtime_args_noop_when_already_complete():
-    # Local execution renders complete args; nothing to add (no placeholders, run-base-dir present).
+    # Local execution renders complete args. Nothing to add (no placeholders, run-base-dir present).
     args = ["a0", "--run-base-dir", "s3://b/base", "--org", "o", "--inputs", "s3://b/i.pb"]
     assert ArmadaConnector._runtime_args(list(args), "", None) == args
-
-
-def test_run_name_extraction():
-    # The run name (shared by every action in a run) scopes the gang id so runs do not collide.
-    assert ArmadaConnector._run_name(_backend_meta()) == "run123"
-    assert ArmadaConnector._run_name(None) == ""
 
 
 def test_plugin_config_builds_a_function_task():
@@ -87,8 +81,8 @@ async def test_create_wraps_the_flyte_container(connector, mock_client):
 
 
 async def test_native_resources_are_mapped(connector, mock_client):
-    # @env.task(resources=...) declares cpu/memory/gpu on the rendered container; the connector
-    # must honour them (the old code silently dropped them and produced a 1-CPU pod).
+    # @env.task(resources=...) declares cpu/memory/gpu on the rendered container. The connector
+    # must map them onto the pod.
     mock_client.submit_jobs.return_value = SimpleNamespace(
         job_response_items=[SimpleNamespace(job_id="01job", error="")]
     )

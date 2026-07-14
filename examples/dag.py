@@ -1,12 +1,12 @@
-"""Armada-specific: a DAG with a gang in the middle.
+"""DAG with a gang in the middle.
 
     generate(n)          one job builds a shared dataset
     calc (x N) ONE GANG  N co-scheduled workers, each on a slice, all-or-nothing
     aggregate(parts)     one job folds the results
 
-The generate -> gang -> aggregate shape: an upstream job feeds a co-dependent cohort (a gang, sharing
-a gang_id and gang_cardinality = N, so Armada runs them together or leaves them queued), and a
-downstream job combines their results. generate and aggregate are ordinary jobs, outside the gang.
+The generate -> gang -> aggregate shape: an upstream job feeds a co-dependent cohort (a gang, formed
+with armada_flyte.Gang, so Armada runs all N together or leaves them queued), and a downstream job
+combines their results. generate and aggregate are ordinary jobs, outside the gang.
 Contrast fanout.py, whose middle stage is independent and uses no gang.
 
     ./.venv/bin/python examples/dag.py
@@ -14,17 +14,20 @@ Contrast fanout.py, whose middle stage is independent and uses no gang.
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass
 
 import flyte
-from armada_flyte import ArmadaConfig
+from armada_flyte import ArmadaConfig, Gang
 
 IMAGE = os.environ.get("ARMADA_TASK_IMAGE", "armada-flyte-task:v1")
 
-# Size of the gang. It must equal the number of fanned-out calc tasks, so both read this constant.
+# Size of the gang. Written once: Gang derives the cardinality from the members added at the fan-out.
 WORKERS = 4
+
+# The node label the gang members must share a value of. With kubernetes.io/hostname the whole gang
+# lands on one node, so the sum of the members' requests must fit that node's free capacity.
+UNIFORMITY_LABEL = "kubernetes.io/hostname"
 
 # generate and aggregate are ordinary Armada jobs, no gang.
 io = flyte.TaskEnvironment(
@@ -33,16 +36,16 @@ io = flyte.TaskEnvironment(
     resources=flyte.Resources(cpu=1, memory="512Mi"),
     plugin_config=ArmadaConfig(queue="flyte"),
 )
-# The calc workers all join one gang: same gang_id, same gang_cardinality = N, so Armada schedules
-# them all-or-nothing together.
-gang = flyte.TaskEnvironment(
+# An ordinary Armada env for the calc workers. The gang is expressed at the fan-out in pipeline().
+calc_env = flyte.TaskEnvironment(
     name="calc",
     image=IMAGE,
-    resources=flyte.Resources(cpu=1, memory="512Mi"),
-    plugin_config=ArmadaConfig(queue="flyte", gang_id="dag", gang_cardinality=WORKERS),
+    # Small resources: with hostname uniformity the whole gang lands on one node.
+    resources=flyte.Resources(cpu="500m", memory="256Mi"),
+    plugin_config=ArmadaConfig(queue="flyte"),
 )
 # The driver orchestrates the DAG. It runs as a backend pod, so it needs the same task image.
-driver = flyte.TaskEnvironment(name="driver", image=IMAGE, depends_on=[io, gang])
+driver = flyte.TaskEnvironment(name="driver", image=IMAGE, depends_on=[io, calc_env])
 
 
 @dataclass
@@ -61,7 +64,7 @@ async def generate(n: int, seed: int) -> list[float]:
     return [rng.uniform(0, 100) for _ in range(n)]
 
 
-@gang.task
+@calc_env.task
 async def calc(rank: int, chunk: list[float]) -> Partial:
     """One gang member: its slice's partial sum. A real distributed job would exchange results with
     its peers each round, which is why the workers must be co-scheduled."""
@@ -78,9 +81,12 @@ async def aggregate(parts: list[Partial]) -> float:
 async def pipeline(n: int = 8000) -> float:
     data = await generate(n=n, seed=42)
     chunks = [data[i::WORKERS] for i in range(WORKERS)]
-    # Fan out EXACTLY WORKERS gang members so the count matches gang_cardinality. Armada co-schedules
-    # the whole gang all-or-nothing.
-    parts = await asyncio.gather(*(calc(rank=r, chunk=chunks[r]) for r in range(WORKERS)))
+    # The calc stage is one gang: add each worker, then run() submits them all-or-nothing onto nodes
+    # sharing UNIFORMITY_LABEL. Gang derives the id and cardinality from the members.
+    gang = Gang(node_uniformity_label=UNIFORMITY_LABEL)
+    for rank in range(WORKERS):
+        gang.add(calc, rank=rank, chunk=chunks[rank])
+    parts = await gang.run()
     return await aggregate(parts=list(parts))
 
 

@@ -11,6 +11,7 @@ import armada_flyte._proto_compat  # noqa: F401,E402
 
 from armada_flyte.config import ConnectorConfig, configure
 from armada_flyte.connector import ArmadaConnector, ArmadaJobMetadata
+from armada_flyte.gang import Gang
 from armada_flyte.task import ArmadaConfig, ArmadaFunctionTask
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "ArmadaConfig",
     "ArmadaFunctionTask",
     "ConnectorConfig",
+    "Gang",
     "configure",
 ]
