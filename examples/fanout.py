@@ -1,4 +1,4 @@
-"""Various: a typed multi-stage pipeline with a parallel fan-out / fan-in.
+"""Typed multi-stage pipeline with a parallel fan-out / fan-in.
 
     generate(n)        produce n numbers
     split into S shards

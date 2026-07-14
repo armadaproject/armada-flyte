@@ -4,8 +4,9 @@
 
 [Flyte 2](https://github.com/flyteorg/flyte) lets you write batch workflows as plain async Python.
 [Armada](https://github.com/armadaproject/armada) schedules millions of jobs a day across many
-Kubernetes clusters, with fair-share, gang scheduling, and preemption. `armada-flyte` connects the
-two: your Flyte task runs as an Armada job, with one line of config and no new API to learn.
+Kubernetes clusters, with fair-share, gang scheduling (running a group of pods all-or-nothing), and
+preemption. `armada-flyte` connects the two: your Flyte task runs as an Armada job, with one line of
+config and no new API to learn.
 
 ## The whole integration
 
@@ -25,10 +26,11 @@ async def greet(name: str) -> str:
     return f"hello {name}, from an Armada pod"   # runs in an Armada-scheduled pod
 ```
 
-A stock `@env.task` and one `plugin_config` line. Fan out with `asyncio.gather`, pass dataclasses
-between tasks, gang-schedule a group: it is all just Flyte, running on Armada.
+The `queue` names the Armada queue the job goes into, its fair-share bucket. A stock `@env.task` and
+one `plugin_config` line. Fan out with `asyncio.gather`, pass dataclasses between tasks, or gang-schedule
+a group all-or-nothing with `armada_flyte.Gang`: it is all just Flyte, running on Armada.
 
-The connector submits to the Armada at `ARMADA_URL` (default `localhost:50051`). Point it at a
+The connector submits to Armada at `ARMADA_URL` (default `localhost:50051`). Point it at a
 remote cluster by setting that env var, or in code:
 
 ```python
@@ -41,18 +43,22 @@ never lands in the control plane. See [docs/getting-started.md](docs/getting-sta
 
 ## See it run
 
-With a local Armada cluster up, the [demo](demo/) stands up a Flyte backend and the connector in one
-command, then you submit the task:
+`./hack/up.sh` brings up Armada and Flyte in one local kind cluster (see the
+[quickstart](demo/README.md)). Submitting a task then returns its typed result to your terminal, and the
+run appears in the Flyte UI:
 
 ```console
-$ ./demo/setup.sh
 $ ./.venv/bin/python examples/hello.py
 submitted run rxc4nspfkjqr5px6q9nj
-  UI: http://localhost:30080/v2/.../runs/rxc4nspfkjqr5px6q9nj
+  Flyte console: http://localhost:5001/v2/.../runs/rxc4nspfkjqr5px6q9nj
+  Armada Lookout: http://localhost:30000
+
+hello armada, from an Armada pod
 ```
 
-The run shows up in the Flyte UI, scheduled and executed by Armada. See
-[getting started](docs/getting-started.md) for the walkthrough.
+This is an integration between two systems, so there is real setup, but `./hack/up.sh` does it in one
+command: the [quickstart](demo/README.md) covers what it stands up and how to run this. From there,
+[examples/](examples/) ladder from `hello` up to a gang inside a DAG.
 
 ## Why both
 
@@ -62,7 +68,7 @@ The run shows up in the Flyte UI, scheduled and executed by Armada. See
 | The Flyte console: runs, lineage, logs | Fair-share between queues, gang scheduling, preemption |
 | Local execution for fast iteration | Battle-tested at millions of jobs a day |
 
-You keep Flyte's authoring and console; Armada does the scheduling. No rewrite, no second SDK.
+You keep Flyte's authoring and console, and Armada does the scheduling. No rewrite, no second SDK.
 
 ## How it works
 
@@ -83,12 +89,14 @@ Flyte UI.
 
 ## Where to go next
 
-- **Run it locally.** [demo/](demo/) stands up the backend and connector in one command (the
-  [See it run](#see-it-run) commands above).
+- **Run it locally.** `./hack/up.sh` brings up Armada, Flyte, and the connector in one kind cluster;
+  the [quickstart](demo/README.md) covers it.
 - **Write tasks.** Start from [examples/hello.py](examples/hello.py), then [examples/](examples/) for
   fan-out, gang scheduling, and a gang inside a DAG.
 - **Run against your own backend.** [Getting started](docs/getting-started.md) covers installing the
-  connector, running it as a service, and building the task image.
+  connector, running it as a service, and building the task image. The examples read `FLYTE_ENDPOINT`
+  (the Flyte API) and `FLYTE_UI_BASE` (the console link they print) from the environment, both
+  defaulting to the local devbox, so point them at your backend there.
 - **Understand the internals.** [How it works](docs/architecture.md): the connector, state mapping,
   and gang scheduling.
 - **Deploy the connector as a service.** [deploy/](deploy/).

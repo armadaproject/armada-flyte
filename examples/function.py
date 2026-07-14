@@ -1,4 +1,4 @@
-"""Simple: one @env.task that runs in an Armada pod. Write normal typed Python, it runs on Armada.
+"""One @env.task that runs in an Armada pod. Write normal typed Python, it runs on Armada.
 
 The only Armada-specific line is plugin_config=ArmadaConfig(queue=...). Resources are declared the
 stock-Flyte way via flyte.Resources. Run:
