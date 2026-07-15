@@ -1,0 +1,32 @@
+# Kind cluster for the armada-flyte quickstart.
+#
+# Based on the armada-operator quickstart kind config (the 30000/30001/30002 Armada NodePorts), with the
+# extra host ports the Flyte side needs. Everything the host reaches is a NodePort mapped straight to
+# localhost here, so the demo needs no port-forwards.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+nodes:
+- role: control-plane
+  extraPortMappings:
+  # --- Armada (from armada-operator) ---
+  - containerPort: 30000   # Lookout UI
+    hostPort: 30000
+    protocol: TCP
+  - containerPort: 30001   # Armada Server REST API
+    hostPort: 30001
+    protocol: TCP
+  - containerPort: 30002   # Armada Server gRPC API (armadactl)
+    hostPort: 30002
+    protocol: TCP
+  # --- Flyte ---
+  - containerPort: 30080   # Flyte API gRPC NodePort (the examples client submits here)
+    hostPort: 30080
+    protocol: TCP
+  - containerPort: 30900   # MinIO NodePort (the client's signed-URL uploads)
+    hostPort: 30900
+    protocol: TCP
+  # --- Ingress (Flyte console + API served same-origin) ---
+  - containerPort: 30500   # Traefik web entrypoint NodePort -> browse the console at localhost:5001
+    hostPort: 5001
+    protocol: TCP
+- role: worker
