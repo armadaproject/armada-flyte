@@ -1,0 +1,9 @@
+line-length = 120
+
+[lint]
+select = ["E", "F"]
+
+[lint.per-file-ignores]
+# The proto-compat shim must be imported before armada_client, so conftest's package imports
+# deliberately sit below it (and below the make_custom fixture).
+"tests/conftest.py" = ["E402"]

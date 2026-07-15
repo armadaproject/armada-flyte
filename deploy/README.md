@@ -6,6 +6,9 @@ connector and wiring a backend to route to it.
 
 ## Run the service locally
 
+`c0` is Flyte 2's connector-runtime binary (installed by `flyte[connector]`); it serves connectors over
+gRPC for a Flyte backend to call. Run it against this connector:
+
 ```bash
 c0 --modules armada_flyte.connector        # serves the connector on :8000
 ```
@@ -38,7 +41,7 @@ the connector-service plugin registered and the routing config.
       plugins:
         connector-service:
           defaultConnector:
-            endpoint: "dns:///<connector-host>:8000"   # where c0 listens
+            endpoint: "<connector-host>:8000"   # where c0 listens
             insecure: true
           supportedTaskTypes:
             - armada
@@ -57,16 +60,18 @@ the connector-service plugin registered and the routing config.
 
 ## Deploy the connector into the backend
 
-Running `c0` on a host is one option. To run the connector inside the backend cluster instead,
-`deploy/app.py` defines it as a `flyte.app.ConnectorEnvironment`. Against a Flyte backend
-(`flyte.init_from_config()` pointed at one), deploy it with:
+Running `c0` on a host is one option. To run the connector inside the backend cluster instead, deploy it
+as a Deployment with [kubernetes/connector.yaml](kubernetes/connector.yaml):
 
 ```bash
-python deploy/app.py        # calls flyte.deploy(connector)
+kubectl apply -f deploy/kubernetes/connector.yaml
 ```
 
-This builds the image and creates the connector deployment. After that, a task whose `task_type` is
-`armada` is routed to it automatically.
+It runs the `gresearch/armada-flyte-connector` image the release workflow publishes from
+[Dockerfile](Dockerfile). Adjust
+the manifest's `namespace`, `ARMADA_URL`, and `FLYTE_BLOB_*` for your cluster. Point the backend's
+`defaultConnector.endpoint` (previous section) at `armada-flyte-connector.<namespace>:8000`, and a task
+whose `task_type` is `armada` routes to it.
 
 ## Two things a backend run depends on
 
