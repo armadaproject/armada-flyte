@@ -25,6 +25,12 @@ import grpc
 # Must run before any armada_client import (aliases vendored google.api to standard).
 import armada_flyte._proto_compat  # noqa: F401
 from armada_flyte.config import ConnectorConfig, resolve_config
+from armada_flyte.gang import (
+    _GANG_ENV_PREFIX,
+    GANG_CARDINALITY_ENV,
+    GANG_ID_ENV,
+    GANG_NODE_UNIFORMITY_ENV,
+)
 from armada_client.armada import submit_pb2
 from armada_client.client import ArmadaClient
 from armada_client.k8s.io.api.core.v1 import generated_pb2 as core_v1
@@ -66,17 +72,29 @@ _GANG_CARDINALITY_ANNOTATION = "armadaproject.io/gangCardinality"
 _GANG_NODE_UNIFORMITY_ANNOTATION = "armadaproject.io/gangNodeUniformityLabel"
 
 
-def _gang_annotations(cfg: Dict[str, Any]) -> Dict[str, str]:
-    """Translate gang_* config into Armada gang annotations, or {} for a non-gang job."""
-    gang_id = cfg.get("gang_id")
-    cardinality = int(cfg.get("gang_cardinality") or 0)
+def _gang_annotations_from_env(container) -> Dict[str, str]:
+    """Build Armada gang annotations from a Gang's ARMADAFLYTE_GANG_* env vars on the container, or {}
+    for a non-gang job."""
+    env: Dict[str, str] = {}
+    for e in getattr(container, "env", None) or []:
+        name = getattr(e, "name", None) or getattr(e, "key", "")
+        env[name] = e.value
+    gang_id = env.get(GANG_ID_ENV)
+    raw_cardinality = env.get(GANG_CARDINALITY_ENV) or "0"
+    try:
+        cardinality = int(raw_cardinality)
+    except ValueError:
+        raise ValueError(
+            f"{GANG_CARDINALITY_ENV}={raw_cardinality!r} is not an integer; the ARMADAFLYTE_GANG_ "
+            "env prefix is reserved for gang scheduling (armada_flyte.Gang) and must not be set by hand"
+        )
     if not gang_id or cardinality < 2:
         return {}
     annotations = {
         _GANG_ID_ANNOTATION: gang_id,
         _GANG_CARDINALITY_ANNOTATION: str(cardinality),
     }
-    label = cfg.get("gang_node_uniformity_label")
+    label = env.get(GANG_NODE_UNIFORMITY_ENV)
     if label:
         annotations[_GANG_NODE_UNIFORMITY_ANNOTATION] = label
     return annotations
@@ -196,14 +214,6 @@ class ArmadaConnector(AsyncConnector):
         ]
 
     @staticmethod
-    def _run_name(meta) -> str:
-        """The Flyte run name (shared by every action in a run), or "" if unavailable."""
-        try:
-            return meta.task_execution_id.node_execution_id.execution_id.name
-        except AttributeError:
-            return ""
-
-    @staticmethod
     def _outputs_path(args) -> str:
         """The blob prefix a0 writes outputs.pb / error.pb to. Flyte renders it into the container's
         ``--outputs-path`` arg; the output_prefix passed to create() is only the base raw-data dir,
@@ -249,14 +259,21 @@ class ArmadaConnector(AsyncConnector):
                 args = args + [flag, val]
         return args
 
-    def _pod_from_flyte_container(self, c, cfg: Dict[str, Any], output_prefix: str = "", meta=None) -> core_v1.PodSpec:
+    def _pod_from_flyte_container(
+        self, c, cfg: Dict[str, Any], output_prefix: str = "", meta=None
+    ) -> core_v1.PodSpec:
         """Wrap Flyte's rendered task container (the a0 entrypoint) into an Armada pod, so the
         user's real function runs in the pod with inputs/outputs via the blob store."""
         # Build env from the rendered container, then let our blob-store env override any matching
         # keys (e.g. a backend may bake an in-cluster storage endpoint the Armada pods can't reach).
         env_by_name: Dict[str, str] = {}
         for e in c.env:
-            env_by_name[getattr(e, "name", None) or getattr(e, "key", "")] = e.value
+            name = getattr(e, "name", None) or getattr(e, "key", "")
+            # Drop a Gang's transport vars so they never reach the pod, where Armada injects its own
+            # ARMADA_GANG_* vars from the annotations.
+            if name.startswith(_GANG_ENV_PREFIX):
+                continue
+            env_by_name[name] = e.value
         for ev in self._storage_env():
             env_by_name[ev.name] = ev.value
         env = [core_v1.EnvVar(name=n, value=v) for n, v in env_by_name.items()]
@@ -294,14 +311,10 @@ class ArmadaConnector(AsyncConnector):
             raise ValueError(
                 "armada_flyte runs Flyte @env.task functions; this task has no rendered container."
             )
-        # Run Flyte's rendered container (the a0 entrypoint) in the pod.
         pod = self._pod_from_flyte_container(container, cfg, output_prefix, task_execution_metadata)
-        # Scope the gang_id to this run so each run forms its own gang (and concurrent runs do not
-        # collide), while every gang member in the run still shares the same id.
-        run_name = self._run_name(task_execution_metadata)
-        if run_name and cfg.get("gang_id"):
-            cfg["gang_id"] = f"{cfg['gang_id']}-{run_name}"
-        annotations = _gang_annotations(cfg)
+        # A Gang stamps its transport env vars onto each member's container. Translate them to gang
+        # annotations (or {} for an ordinary job).
+        annotations = _gang_annotations_from_env(container)
         item = self.client.create_job_request_item(
             priority=float(cfg.get("priority", 1)),
             namespace=cfg.get("namespace", "default"),

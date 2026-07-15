@@ -1,46 +1,40 @@
-"""Armada-specific: GANG scheduling (all-or-nothing co-scheduling of a distributed job).
+"""GANG scheduling (all-or-nothing co-scheduling of a distributed job).
 
     seed shards            give each worker a slice of a shared dataset
     worker (x N) ONE GANG  N co-dependent workers, scheduled all-or-nothing by Armada
     reduce                 combine the workers' contributions
 
-The N workers share a gang_id and the same gang_cardinality = N, so Armada places ALL N pods together
-or none. This is the primitive for a distributed job whose workers must run at the same time (an
-all-reduce ring, an MPI world), where a worker cannot progress while its peers are absent. Contrast
-fanout.py, whose shards are INDEPENDENT and use no gang: gangs are for co-dependent workers, not
-parallel busywork.
+The N workers form one armada_flyte.Gang, so Armada places ALL N pods together or none. This is the
+primitive for a distributed job whose workers must run at the same time (an all-reduce ring, an MPI
+world), where a worker cannot progress while its peers are absent. Contrast fanout.py, whose shards
+are INDEPENDENT and use no gang: gangs are for co-dependent workers, not parallel busywork.
 
     ./.venv/bin/python examples/gang.py
 """
 
 from __future__ import annotations
 
-import asyncio
 import os
 from dataclasses import dataclass
 
 import flyte
-from armada_flyte import ArmadaConfig
+from armada_flyte import ArmadaConfig, Gang
 
 IMAGE = os.environ.get("ARMADA_TASK_IMAGE", "armada-flyte-task:v1")
 
-# Number of workers in the gang. The cardinality MUST equal the count of fanned-out worker tasks, so
-# both read this one constant. Raise it (or the per-worker resources) past what the cluster can fit
-# at once to watch the whole gang stay QUEUED as a unit instead of half-starting.
+# Number of workers in the gang. Gang derives the cardinality from the members, so this is the only
+# place the size is written. Raise it past the node's capacity to watch the whole gang stay QUEUED.
 WORKERS = 4
 
-# Every task in this env joins one gang: the connector scopes gang_id to the run, and all N members
-# declare the same cardinality, so Armada schedules them all-or-nothing together. (Add
-# gang_node_uniformity_label="kubernetes.io/hostname" to also force them onto co-located nodes.)
+# An ordinary Armada env. The gang is expressed at the fan-out below, not here.
 work = flyte.TaskEnvironment(
     name="gang",
     image=IMAGE,
-    resources=flyte.Resources(cpu=1, memory="512Mi"),
-    plugin_config=ArmadaConfig(queue="flyte", gang_id="distributed-average", gang_cardinality=WORKERS),
+    # Sized so the whole gang (4 x 256Mi) fits the devbox node at once.
+    resources=flyte.Resources(cpu="500m", memory="256Mi"),
+    plugin_config=ArmadaConfig(queue="flyte"),
 )
-# The driver orchestrates the gang. It runs as a backend pod, so it needs the same task image.
-# (Note the driver is not in the worker env, so it carries no gang_cardinality and is not itself a
-# gang member.)
+# The driver orchestrates the gang from a backend pod (needs the same image) and is not a gang member.
 driver = flyte.TaskEnvironment(name="driver", image=IMAGE, depends_on=[work])
 
 
@@ -71,9 +65,9 @@ def _combine(parts: list[Contribution]) -> float:
 
 @driver.task
 async def distributed_average(n: int = 5000) -> float:
-    # Fan out EXACTLY `WORKERS` gang members, so the count matches gang_cardinality. asyncio.gather
-    # submits them together; Armada co-schedules the whole gang all-or-nothing.
-    parts = await asyncio.gather(*(worker(rank=r, n=n) for r in range(WORKERS)))
+    # Gang.map runs one worker per item as a single all-or-nothing gang (dag.py shows the lower-level
+    # Gang().add()/run() form). The cardinality is derived from the members, so it matches the fan-out.
+    parts = await Gang.map(worker, range(WORKERS), n=n)
     return _combine(list(parts))
 
 

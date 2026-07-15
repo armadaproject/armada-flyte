@@ -28,14 +28,10 @@ class ArmadaConfig:
     job_set_id: str = "flyte-dag"
     namespace: str = "default"
     priority: int = 1
-    # Optional resource override; normally resources are declared via flyte.Resources instead.
+    # Optional resource override. Normally resources are declared via flyte.Resources instead.
     cpu: Optional[str] = None
     memory: Optional[str] = None
-    # Gang scheduling: tasks sharing a gang_id (all declaring the same gang_cardinality of 2+) are
-    # scheduled all-or-nothing together. Leave gang_id None for an ordinary job.
-    gang_id: Optional[str] = None
-    gang_cardinality: int = 0
-    gang_node_uniformity_label: Optional[str] = None
+    # Gang scheduling is expressed with armada_flyte.Gang, not through ArmadaConfig.
 
 
 class ArmadaFunctionTask(AsyncConnectorExecutorMixin, AsyncFunctionTaskTemplate):

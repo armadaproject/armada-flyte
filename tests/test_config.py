@@ -19,17 +19,11 @@ def test_config_defaults():
 
 def test_serialised_keys():
     # asdict(ArmadaConfig) is exactly what ArmadaFunctionTask.custom_config emits and the connector
-    # reads back from the task template's custom.
+    # reads back from the task template's custom. Gang scheduling is not here. It is expressed with
+    # armada_flyte.Gang (see test_gang.py).
     custom = asdict(ArmadaConfig(queue="compute", priority=5))
     assert set(custom) == {
         "queue", "job_set_id", "namespace", "priority", "cpu", "memory",
-        "gang_id", "gang_cardinality", "gang_node_uniformity_label",
     }
     assert custom["queue"] == "compute"
     assert custom["priority"] == 5
-
-
-def test_gang_defaults_off():
-    cfg = ArmadaConfig()
-    assert cfg.gang_id is None
-    assert cfg.gang_cardinality == 0
